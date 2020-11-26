@@ -10,10 +10,6 @@
 
 #include "matrix.h"
 
-#include "../deps/glm/glm/mat4x4.hpp"
-#include "../deps/glm/glm/vec3.hpp"
-#include "../deps/glm/glm/gtc/type_ptr.hpp"
-
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
