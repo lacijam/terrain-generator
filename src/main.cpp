@@ -448,6 +448,11 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 			data.yaw += x_off * 0.1f;
 			data.pitch += y_off * 0.1f;
+			if (data.pitch > 89.f) {
+				data.pitch = 89.f;
+			} else if (data.pitch <= -89.f) {
+				data.pitch = -89.f;
+			}
 
 			Matrix::v3 direction;
 			direction.x = cosf(Matrix::radians(data.yaw)) * cosf(Matrix::radians(data.pitch));
