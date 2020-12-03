@@ -3,12 +3,12 @@
 #endif
 
 #include <Windows.h>
-#include <iostream>
 #include <memory>
 
 #include "opengl_loader.h"
 
 #include "matrix.h"
+#include "v3.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
@@ -25,9 +25,9 @@ struct GameData {
 	float NEAR_CLIP;
 	float FAR_CLIP;
 	float yaw, pitch;
-	Matrix::v3 camera_pos;
-	Matrix::v3 camera_front;
-	Matrix::v3 camera_up;
+	V3 camera_pos;
+	V3 camera_front;
+	V3 camera_up;
 };
 
 void win32_get_client_size(HWND hwnd, int *w, int *h)
@@ -371,16 +371,16 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	bool success = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "res/teapot.obj");
 
-	if (!warn.empty()) {
-		std::cout << warn << std::endl;
-	}
-	if (!err.empty()) {
-		std::cout << err << std::endl;
-	}
-	if (!success) {
-		std::cout << "tinyobj::LoadObj something went wrong" << std::endl;
-		return 0;
-	}
+	// if (!warn.empty()) {
+	// 	std::cout << warn << std::endl;
+	// }
+	// if (!err.empty()) {
+	// 	std::cout << err << std::endl;
+	// }
+	// if (!success) {
+	// 	std::cout << "tinyobj::LoadObj something went wrong" << std::endl;
+	// 	return 0;
+	// }
 	
 	unsigned vao, vbo, ebo;
 	glGenVertexArrays(1, &vao);
@@ -454,7 +454,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				data.pitch = -89.f;
 			}
 
-			Matrix::v3 direction;
+			V3 direction;
 			direction.x = cosf(Matrix::radians(data.yaw)) * cosf(Matrix::radians(data.pitch));
 			direction.y = sinf(Matrix::radians(data.pitch));
 			direction.z = sinf(Matrix::radians(data.yaw)) * cosf(Matrix::radians(data.pitch));
@@ -480,29 +480,13 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		} 
 		
 		if (GetKeyState('A')  & KEY_DOWN) {
-			float x1, y1, z1;
-			x1 = data.camera_front.x;
-			y1 = data.camera_front.y;
-			z1 = data.camera_front.z;
-			float x2, y2, z2;
-			x2 = data.camera_up.x;
-			y2 = data.camera_up.y;
-			z2 = data.camera_up.z;
-			data.camera_pos -= Matrix::normalise(Matrix::cross(x1, y1, z1, x2, y2, z2)) * camera_speed;
+			data.camera_pos -= Matrix::normalise(Matrix::cross(data.camera_front, data.camera_up)) * camera_speed;
 		} else if (GetKeyState('D') & KEY_DOWN) {
-			float x1, y1, z1;
-			x1 = data.camera_front.x;
-			y1 = data.camera_front.y;
-			z1 = data.camera_front.z;
-			float x2, y2, z2;
-			x2 = data.camera_up.x;
-			y2 = data.camera_up.y;
-			z2 = data.camera_up.z;
-			data.camera_pos += Matrix::normalise(Matrix::cross(x1, y1, z1, x2, y2, z2)) * camera_speed;
+			data.camera_pos += Matrix::normalise(Matrix::cross(data.camera_front, data.camera_up)) * camera_speed;
 		}
 		//
 
-		glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
+		glClearColor(0.5f, 0.2f, 0.3f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glUseProgram(program.id);

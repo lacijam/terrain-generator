@@ -1,4 +1,5 @@
 #include "matrix.h"
+#include "v3.h"
 
 namespace Matrix {
 	void multiply(float* result, const float* lhs, const float* rhs)
@@ -97,13 +98,13 @@ namespace Matrix {
 		matrix[14] = - (2 * far * near) / (far - near);
 	}
 
-	extern void look_at(float* matrix, v3 eye, v3 centre, v3 up)
+	extern void look_at(float* matrix, V3 eye, V3 centre, V3 up)
 	{
-		v3 F, T, S, U;
+		V3 F, T, S, U;
 		F = normalise(centre - eye);
 		T = normalise(up);
-		S = normalise(cross(F.x, F.y, F.z, T.x, T.y, T.z));
-		U = normalise(cross(S.x, S.y, S.z, F.x, F.y, F.z));
+		S = normalise(cross(F, T));
+		U = normalise(cross(S, F));
 		identity(matrix);
 		matrix[0] = S.x;
 		matrix[1] = U.x;
@@ -114,9 +115,9 @@ namespace Matrix {
 		matrix[8] = S.z;
 		matrix[9] = U.z;
 		matrix[10] = -F.z;
-		matrix[12] = -dot(S.x, S.y, S.z, eye.x, eye.y, eye.z);
-		matrix[13] = -dot(U.x, U.y, U.z, eye.x, eye.y, eye.z);
-		matrix[14] = dot(F.x, F.y, F.z, eye.x, eye.y, eye.z);
+		matrix[12] = -dot(S, eye);
+		matrix[13] = -dot(U, eye);
+		matrix[14] = dot(F, eye);
 	}
 
 	float radians(const float degrees)
@@ -124,7 +125,7 @@ namespace Matrix {
 		return degrees * (float)(M_PI / 180.0);
 	}
 
-	extern v3 normalise(v3 v)
+	extern V3 normalise(V3 v)
 	{
 		float magnitude = sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 		return {
@@ -140,21 +141,27 @@ namespace Matrix {
 		matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
 	}
 	
-	float dot(float x1, float y1, float z1, float x2, float y2, float z2)
+	float dot(V3 a, V3 b)
 	{
-		return x1 * x2 + y1 * y2 + z1 * z2;
+		return a.x * b.x + a.y * b.y + a.z * b.z;
 	}
 
-	v3 cross(float x1, float y1, float z1, float x2, float y2, float z2)
+	V3 cross(V3 a, V3 b)
 	{
 		return {
-			(y1 * z2) - (z1 * y2),
-			(z1 * x2) - (x1 * z2),
-			(x1 * y2) - (y1 * x2)
+			(a.y * b.z) - (a.z * b.y),
+			(a.z * b.x) - (a.x * b.z),
+			(a.x * b.y) - (a.y * b.x)
 		};
+
+		// 		return {
+		// 	(y1 * z2) - (z1 * y2),
+		// 	(z1 * x2) - (x1 * z2),
+		// 	(x1 * y2) - (y1 * x2)
+		// };
 	}
 
-	v3 operator*(float x, const v3& v)
+	V3 operator*(float x, const V3& v)
 	{
 		return {
 			v.x * x,
