@@ -1,6 +1,8 @@
 #include "matrix.h"
 #include "v3.h"
 
+#include <assert.h>
+
 namespace Matrix {
 	void multiply(float* result, const float* lhs, const float* rhs)
 	{
@@ -98,7 +100,7 @@ namespace Matrix {
 		matrix[14] = - (2 * far * near) / (far - near);
 	}
 
-	extern void look_at(float* matrix, V3 eye, V3 centre, V3 up)
+	void look_at(float* matrix, V3 eye, V3 centre, V3 up)
 	{
 		V3 F, T, S, U;
 		F = normalise(centre - eye);
@@ -125,7 +127,7 @@ namespace Matrix {
 		return degrees * (float)(M_PI / 180.0);
 	}
 
-	extern V3 normalise(V3 v)
+	V3 normalise(V3 v)
 	{
 		float magnitude = sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 		return {
@@ -152,21 +154,6 @@ namespace Matrix {
 			(a.y * b.z) - (a.z * b.y),
 			(a.z * b.x) - (a.x * b.z),
 			(a.x * b.y) - (a.y * b.x)
-		};
-
-		// 		return {
-		// 	(y1 * z2) - (z1 * y2),
-		// 	(z1 * x2) - (x1 * z2),
-		// 	(x1 * y2) - (y1 * x2)
-		// };
-	}
-
-	V3 operator*(float x, const V3& v)
-	{
-		return {
-			v.x * x,
-			v.y * x,
-			v.z * x
 		};
 	}
 }

@@ -411,8 +411,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	float model[16];
     Matrix::identity(model);
-	Matrix::scale(model, 1.f, 1.f, 1.f);
-	Matrix::translate(model, 0.f, -1.f, -10.f);
 
     Matrix::identity(data.view);
 	data.camera_pos = {0.f, 0.f, 0.f};
@@ -422,8 +420,14 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	data.pitch = 0;
 
 	data.running = true;
+	double dt = 0;
+
 	MSG msg = {};
 	while (data.running) {
+		LARGE_INTEGER start, freq;
+		QueryPerformanceCounter(&start);
+		QueryPerformanceFrequency(&freq);
+
 		while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
@@ -433,6 +437,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			data.running = false;
 		}
 		
+		// If ESCAPE is pressed to release the cursor
+		// then we dont want to update the camera.
 		if (GetCapture() == data.hwnd)
 		{
 			POINT p;
@@ -464,7 +470,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		// MOVE THIS MOVE THIS MOVE THIS
 		// MOVEMENT CODE
 		// MOVE THIS MOVE THIS MOVE THIS
-		const float camera_speed = 1.f;
+		const float camera_speed = 40.0f * dt;
 		if (GetKeyState('Q') & KEY_DOWN) {
 			data.running = false;
 		} 
@@ -486,15 +492,18 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		}
 		//
 
-		glClearColor(0.5f, 0.2f, 0.3f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// Camera
+		Matrix::look_at(data.view, data.camera_pos, data.camera_pos + data.camera_front, data.camera_up);
 
 		glUseProgram(program.id);
+		
+		glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		float i = -1.f;
-		Matrix::rotate_x(model, i);
-
-		Matrix::look_at(data.view, data.camera_pos, data.camera_pos + data.camera_front, data.camera_up);
+		// Entity
+		Matrix::identity(model);
+		Matrix::scale(model, 1.f, 1.f, 1.f);
+		Matrix::translate(model, 0.f, -1.f, -10.f);
 
 		float mv[16], mvp[16];
 		Matrix::identity(mv);
@@ -504,10 +513,19 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
 
 		glDrawElements(GL_TRIANGLES, (GLsizei)shapes[0].mesh.indices.size(), GL_UNSIGNED_INT, NULL);
+		//
+
+		SwapBuffers(wglGetCurrentDC());
 
 		glUseProgram(0);
 
-		SwapBuffers(wglGetCurrentDC());
+		LARGE_INTEGER finish, elapsed;
+		QueryPerformanceCounter(&finish);
+		elapsed.QuadPart = finish.QuadPart - start.QuadPart;
+		elapsed.QuadPart *= 1000000;
+		elapsed.QuadPart /= freq.QuadPart;
+		dt = elapsed.QuadPart / 1000000.;
+		printf("%f\n", dt);
 	}
 
 	glBindVertexArray(0);
