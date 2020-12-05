@@ -27,18 +27,20 @@ void win32_get_client_size(HWND hwnd, int *w, int *h)
 {
     RECT r;
     GetClientRect(hwnd, &r);
-    *w = r.right - r.left;
-    *h = r.bottom - r.top;
+    *w = r.right;
+    *h = r.bottom;
 }
 
 void win32_get_window_centre(HWND hwnd, int *x, int *y)
 {
-	int cx, cy;
-    RECT r;
-	GetWindowRect(hwnd, &r);
-	win32_get_client_size(hwnd, &cx, &cy);
-	*x = r.left + cx / 2;
-	*y = r.top + cy / 2;
+	RECT r;
+	POINT p;
+    GetClientRect(hwnd, &r);
+	p.x = r.right / 2;
+	p.y = r.bottom / 2;
+	ClientToScreen(hwnd, &p);
+	*x = p.x;
+	*y = p.y;
 }
 
 void win32_reset_cursor_pos(HWND hwnd)
@@ -131,7 +133,6 @@ LRESULT handle_message(GameData* data, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 		glViewport(0, 0, cx, cy);
 
-		assert(data->cur_cam);
 		camera_frustrum(data->cur_cam, cx, cy);
 	} break;
 
@@ -425,33 +426,13 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		{
 			POINT p;
 			GetCursorPos(&p);
+			ScreenToClient(data.hwnd, &p);
+
+			camera_update(data.cur_cam, p.x, p.y);
 
 			win32_reset_cursor_pos(data.hwnd);
-
-			int mx, my;
-			win32_get_window_centre(data.hwnd, &mx, &my);
-
-			float x_off = p.x - mx;
-			float y_off = my - p.y;
-
-			cam->yaw += x_off * 0.1f;
-			cam->pitch += y_off * 0.1f;
-			if (cam->pitch > 89.f) {
-				cam->pitch = 89.f;
-			} else if (cam->pitch <= -89.f) {
-				cam->pitch = -89.f;
-			}
-
-			V3 direction;
-			direction.x = cosf(Matrix::radians(cam->yaw)) * cosf(Matrix::radians(cam->pitch));
-			direction.y = sinf(Matrix::radians(cam->pitch));
-			direction.z = sinf(Matrix::radians(cam->yaw)) * cosf(Matrix::radians(cam->pitch));
-			cam->front = Matrix::normalise(direction);
 		}
 	
-		// MOVE THIS MOVE THIS MOVE THIS
-		// MOVEMENT CODE
-		// MOVE THIS MOVE THIS MOVE THIS
 		if (GetKeyState('Q') & KEY_DOWN) {
 			data.running = false;
 		} 
@@ -471,9 +452,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		} else if (GetKeyState('D') & KEY_DOWN) {
 			cam->pos += Matrix::normalise(Matrix::cross(cam->front, cam->up)) * cam->vel * dt;
 		}
-		//
 
-		// Camera
 		Matrix::look_at(cam->view, cam->pos, cam->pos + cam->front, cam->up);
 
 		glUseProgram(program.id);
@@ -481,7 +460,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		// Entity
 		Matrix::identity(model);
 		Matrix::translate(model, 0.f, 0.f, 0.f);
 		Matrix::scale(model, 10.f, 10.f, 10.f);
@@ -494,7 +472,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
 
 		glDrawElements(GL_TRIANGLES, (GLsizei)shapes[0].mesh.indices.size(), GL_UNSIGNED_INT, NULL);
-		//
 
 		SwapBuffers(wglGetCurrentDC());
 
@@ -506,7 +483,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		elapsed.QuadPart *= 1000000;
 		elapsed.QuadPart /= freq.QuadPart;
 		dt = elapsed.QuadPart / 1000000.;
-		//printf("%f\n", dt);
 	}
 
 	camera_destroy(cam);
