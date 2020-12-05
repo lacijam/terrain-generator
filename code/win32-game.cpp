@@ -3,7 +3,7 @@
 #endif
 
 #include <Windows.h>
-#include <memory>
+#include <stdio.h>
 
 #include "opengl_loader.h"
 
@@ -11,27 +11,28 @@
 #include "v3.h"
 #include "camera.h"
 
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
+// #define TINYOBJLOADER_IMPLEMENTATION
+// #include "tiny_obj_loader.h"
 
 #define KEY_DOWN 0xF000
 
 struct GameData {
-	HWND hwnd;
-	HCURSOR cursor;
-	bool running;
 	Camera *cur_cam;
+	bool running;
 };
 
-void win32_get_client_size(HWND hwnd, int *w, int *h)
+void on_create(GameData *data)
 {
-    RECT r;
-    GetClientRect(hwnd, &r);
-    *w = r.right;
-    *h = r.bottom;
+	data->cur_cam = camera_create();
+	data->running = true;
 }
 
-void win32_get_window_centre(HWND hwnd, int *x, int *y)
+void on_destroy(GameData *data)
+{
+	camera_destroy(data->cur_cam);
+}
+
+void win32_reset_cursor_pos(HWND hwnd)
 {
 	RECT r;
 	POINT p;
@@ -39,15 +40,7 @@ void win32_get_window_centre(HWND hwnd, int *x, int *y)
 	p.x = r.right / 2;
 	p.y = r.bottom / 2;
 	ClientToScreen(hwnd, &p);
-	*x = p.x;
-	*y = p.y;
-}
-
-void win32_reset_cursor_pos(HWND hwnd)
-{
-	int x, y;
-	win32_get_window_centre(hwnd, &x, &y);
-	SetCursorPos(x, y);
+	SetCursorPos(p.x, p.y);
 }
 
 void APIENTRY  
@@ -64,7 +57,7 @@ MessageCallback(GLenum source,
             id, message);
 }
 
-bool check_shader_compile_log(unsigned shader)
+bool gl_check_shader_compile_log(unsigned shader)
 {
 	int success;
 	char info_log[512];
@@ -78,7 +71,7 @@ bool check_shader_compile_log(unsigned shader)
 	return success;
 }
 
-bool check_program_link_log(unsigned program)
+bool gl_check_program_link_log(unsigned program)
 {
 	int success;
 	char info_log[512];
@@ -102,7 +95,7 @@ bool create_and_attach_shader(unsigned program_id, const char* src, GLenum shade
     glShaderSource(shader, 1, &src, 0);
     glCompileShader(shader);
     glAttachShader(program_id, shader);
-    if (!check_shader_compile_log(shader)) {
+    if (!gl_check_shader_compile_log(shader)) {
         return false;
     }
 
@@ -117,7 +110,7 @@ struct ShaderProgram {
 	unsigned fragment_shader;
 };
 
-LRESULT handle_message(GameData* data, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT handle_message(GameData* data, HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch (uMsg)
 	{
@@ -137,14 +130,14 @@ LRESULT handle_message(GameData* data, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	} break;
 
 	case WM_CAPTURECHANGED: {
-		SetCursor(LoadCursor(0, IDC_ARROW));
+		SetCursor((HCURSOR)LoadImage(0, IDC_ARROW, IMAGE_CURSOR, 0, 0, 0));
 	} break;
 
 	case WM_LBUTTONDOWN: {
-		if (GetCapture() != data->hwnd) {
-			SetCapture(data->hwnd);
+		if (GetCapture() != hwnd) {
+			SetCapture(hwnd);
 			SetCursor(0);
-			win32_reset_cursor_pos(data->hwnd);
+			win32_reset_cursor_pos(hwnd);
 		}
 	} break;
 
@@ -153,7 +146,7 @@ LRESULT handle_message(GameData* data, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	} break;
 
 	default:
-		return DefWindowProc(data->hwnd, uMsg, wParam, lParam);
+		return DefWindowProc(hwnd, uMsg, wParam, lParam);
 	}
 
 	return TRUE;
@@ -165,12 +158,14 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		CREATESTRUCT* create_struct = reinterpret_cast<CREATESTRUCT*>(lParam);
 		GameData* data = reinterpret_cast<GameData*>(create_struct->lpCreateParams);
 		SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)data);
+
+		on_create(data);
 	}
 
 	LONG_PTR ptr = GetWindowLongPtr(hwnd, GWLP_USERDATA);
 	GameData* data = reinterpret_cast<GameData*>(ptr);
 	if (data) {
-		return handle_message(data, uMsg, wParam, lParam);
+		return handle_message(data, hwnd, uMsg, wParam, lParam);
 	}
 
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -209,13 +204,11 @@ void init_opengl_extensions()
 	HGLRC dummy_context = wglCreateContext(dummy_dc);
 	if (!wglMakeCurrent(dummy_dc, dummy_context)) {
 		MessageBoxA(0, "Something went wrong during dummy context creation!", "Error", 0);
-		exit(0);
 	}
 
 	load_gl_extensions();
 	if (!wgl_is_supported("WGL_ARB_create_context")) {
 		MessageBoxA(0, "Something went wrong during OpenGL extension loading!", "Fatal Error", 0);
-		exit(0);
 	}
 
 	wglMakeCurrent(NULL, NULL);
@@ -235,23 +228,26 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 #endif
 
 	GameData data;
-	Camera *cam = camera_create();
-	data.cur_cam = cam;
 
-	WNDCLASSEX window_class = {};
+	WNDCLASSEXA window_class = {};
 	window_class.cbSize = sizeof(WNDCLASSEX);
 	window_class.lpfnWndProc = window_proc;
 	window_class.style = CS_VREDRAW | CS_HREDRAW | CS_OWNDC;
-	window_class.hInstance = GetModuleHandle(NULL);
+	window_class.hInstance = GetModuleHandle(0);
 	window_class.hbrBackground = GetSysColorBrush(COLOR_BACKGROUND);
-	window_class.hCursor = LoadCursor(NULL, IDC_ARROW);
-	window_class.lpszClassName = L"Game";
-	RegisterClassEx(&window_class);
+	window_class.hCursor = (HCURSOR)LoadImage(0, IDC_ARROW, IMAGE_CURSOR, 0, 0, LR_SHARED);
+	window_class.lpszClassName = "Game";
+	RegisterClassExA(&window_class);
 
-	data.hwnd = CreateWindowEx(
-		NULL, L"Game", L"Game", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT
+	HWND hwnd = CreateWindowExA(
+		NULL, "Game", "Game foo", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT
 		, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, GetModuleHandle(NULL), &data
 	);
+
+	if (!hwnd) {
+		MessageBoxA(0, "Failed to create window", "Fatal Error", 0);
+		return 1;
+	}
 
 	init_opengl_extensions();
 
@@ -267,20 +263,20 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		0
 	};
 
-	HDC dc = GetDC(data.hwnd);
+	HDC dc = GetDC(hwnd);
 	int pixel_format;
 	UINT num_formats;
 	wglChoosePixelFormatARB(dc, pixel_format_attribs, 0, 1, &pixel_format, &num_formats);
 	if (!num_formats) {
 		MessageBoxA(0, "Failed to choose a valid pixel format", "Fatal Error", 0);
-		exit(0);
+		return 1;
 	}
 
 	PIXELFORMATDESCRIPTOR pfd;
 	DescribePixelFormat(dc, pixel_format, sizeof(pfd), &pfd);
 	if (!SetPixelFormat(dc, pixel_format, &pfd)) {
 		MessageBoxA(0, "Failed to set a pixel format", "Fatal Error", 0);
-		exit(0);
+		return 1;
 	}
 
 	int attribs[] = {
@@ -299,7 +295,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	if (!wglMakeCurrent(dc, gl_context)) {
 		MessageBoxA(0, "Something went wrong during OpenGL 3.3 context current", "Fatal Error", 0);
-		exit(0);
+		return 1;
 	}
 
 	#ifdef _DEBUG
@@ -336,9 +332,19 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 		void main()
 		{
-			fragment = vec4(v_pos.x, v_pos.y, v_pos.z, 1.0);
+			fragment = vec4(v_pos.x, v_pos.x, v_pos.x, 1.0);
 		}
 	)";
+
+	float vertices[9] = {
+		-0.5f,  -0.5f,  0.0f,
+		 0.5f,  -0.5f,  0.0f,
+		 0.0f,   0.5f,  0.0f
+	};
+
+	unsigned indices[3] {
+		0, 1, 2
+	};
 
 	ShaderProgram program;
 	program.id = glCreateProgram();
@@ -346,63 +352,37 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	create_and_attach_shader(program.id, fragment_source, GL_FRAGMENT_SHADER);
 	glLinkProgram(program.id);
     glUseProgram(program.id);
-    if (!check_program_link_log(program.id)) {
+    if (!gl_check_program_link_log(program.id)) {
 		MessageBoxA(0, "Something went wrong during shader program linking!", "Fatal Error", 0);
-		exit(0);
+		return 1;
 	}
 
 	unsigned a_pos = glGetAttribLocation(program.id, "a_pos");
 	unsigned transform_loc = glGetUniformLocation(program.id, "transform");
 
-	tinyobj::attrib_t attrib;
-	std::vector<tinyobj::shape_t> shapes;
-	std::vector<tinyobj::material_t> materials;
-	std::string warn, err;
-
-	bool success = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "res/teapot.obj");
-
-	if (!warn.empty()) {
-		printf("%s\n", warn.c_str());
-	}
-	if (!err.empty()) {
-		printf("%s\n", err.c_str());
-	}
-	if (!success) {
-		printf("tinyobj::LoadObj something went wrong\n");
-		return 0;
-	}
-	
 	unsigned vao, vbo, ebo;
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
 
 	glGenBuffers(1, &vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glBufferData(GL_ARRAY_BUFFER, attrib.vertices.size() * sizeof(float), &attrib.vertices[0], GL_STATIC_DRAW);
-	
-	unsigned int* indices = (unsigned int*)malloc(shapes[0].mesh.indices.size() * sizeof(unsigned int));
-	for (int i = 0; i < shapes[0].mesh.indices.size(); i++) {
-		indices[i] = shapes[0].mesh.indices[i].vertex_index;
-	}
+	glBufferData(GL_ARRAY_BUFFER, 9 * sizeof(float), vertices, GL_STATIC_DRAW);
 
 	glGenBuffers(1, &ebo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, shapes[0].mesh.indices.size() * sizeof(unsigned int), indices, GL_STATIC_DRAW);
-
-	free(indices);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3 * sizeof(unsigned), indices, GL_STATIC_DRAW);
 
 	glVertexAttribPointer(a_pos, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(a_pos);
 
-	ShowWindow(data.hwnd, nShowCmd);
+	ShowWindow(hwnd, nShowCmd);
 
-	SetCapture(data.hwnd);
 	SetCursor(0);
+	SetCapture(hwnd);
 
 	float model[16];
     Matrix::identity(model);
 
-	data.running = true;
 	double dt = 0;
 
 	MSG msg = {};
@@ -416,65 +396,85 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			DispatchMessage(&msg);
 		} 
 
-		if (msg.message == WM_QUIT) {
-			data.running = false;
-		}
-		
 		// If ESCAPE is pressed to release the cursor
 		// then we dont want to update the camera.
-		if (GetCapture() == data.hwnd)
+		if (GetCapture() == hwnd)
 		{
 			POINT p;
 			GetCursorPos(&p);
-			ScreenToClient(data.hwnd, &p);
+			ScreenToClient(hwnd, &p);
 
 			camera_update(data.cur_cam, p.x, p.y);
 
-			win32_reset_cursor_pos(data.hwnd);
+			win32_reset_cursor_pos(hwnd);
 		}
 	
 		if (GetKeyState('Q') & KEY_DOWN) {
 			data.running = false;
-		} 
-
-		if (GetKeyState(VK_ESCAPE) & KEY_DOWN) {
+		} else if (GetKeyState(VK_ESCAPE) & KEY_DOWN) {
 			ReleaseCapture();
-		}
-		
-		if (GetKeyState('W') & KEY_DOWN) {
-			cam->pos += cam->vel * dt * cam->front;
-		} else if (GetKeyState('S') & KEY_DOWN) {
-			cam->pos -= cam->vel * dt * cam->front;
-		} 
-		
-		if (GetKeyState('A')  & KEY_DOWN) {
-			cam->pos -= Matrix::normalise(Matrix::cross(cam->front, cam->up)) * cam->vel * dt;
-		} else if (GetKeyState('D') & KEY_DOWN) {
-			cam->pos += Matrix::normalise(Matrix::cross(cam->front, cam->up)) * cam->vel * dt;
+		} else {
+			if (GetKeyState('W') & KEY_DOWN) {
+				camera_move_forward(data.cur_cam, dt);
+			} 
+			
+			else if (GetKeyState('S') & KEY_DOWN) {
+				camera_move_backward(data.cur_cam, dt);
+			} 
+			
+			if (GetKeyState('A')  & KEY_DOWN) {
+				camera_move_left(data.cur_cam, dt);
+			} else if (GetKeyState('D') & KEY_DOWN) {
+				camera_move_right(data.cur_cam, dt);
+			}
 		}
 
-		Matrix::look_at(cam->view, cam->pos, cam->pos + cam->front, cam->up);
+		camera_look_at(data.cur_cam);
 
 		glUseProgram(program.id);
 		
 		glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		Matrix::identity(model);
-		Matrix::translate(model, 0.f, 0.f, 0.f);
-		Matrix::scale(model, 10.f, 10.f, 10.f);
+		for (unsigned i = 0; i < 1000; i += 10) {
+			for (unsigned j = 0; j < 1000; j += 10) {
+			Matrix::identity(model);
+			Matrix::translate(model, j, 0.f, i);
+			Matrix::rotate_x(model, 90);
+			Matrix::scale(model, 10.f, 10.f, 10.f);
 
-		float mv[16], mvp[16];
-		Matrix::identity(mv);
-		Matrix::identity(mvp);
-		Matrix::multiply(mv, cam->view, model);
-		Matrix::multiply(mvp, cam->frustrum, mv);
-		glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
+			float mv[16], mvp[16];
+			Matrix::identity(mv);
+			Matrix::identity(mvp);
+			Matrix::multiply(mv, data.cur_cam->view, model);
+			Matrix::multiply(mvp, data.cur_cam->frustrum, mv);
+			glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
 
-		glDrawElements(GL_TRIANGLES, (GLsizei)shapes[0].mesh.indices.size(), GL_UNSIGNED_INT, NULL);
+			glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
+			}
+		}
+
+		for (unsigned i = 0; i < 1000; i += 10) {
+			for (unsigned j = 0; j < 1000; j += 10) {
+				Matrix::identity(model);
+				Matrix::translate(model, j + 5, 0.f, i);
+				Matrix::rotate_y(model, 180);
+				Matrix::rotate_x(model, 90);
+				Matrix::scale(model, 10.f, 10.f, 10.f);
+
+				float mv[16], mvp[16];
+				Matrix::identity(mv);
+				Matrix::identity(mvp);
+				Matrix::multiply(mv, data.cur_cam->view, model);
+				Matrix::multiply(mvp, data.cur_cam->frustrum, mv);
+				glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
+
+				glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
+			}
+		}
 
 		SwapBuffers(wglGetCurrentDC());
-
+	
 		glUseProgram(0);
 
 		LARGE_INTEGER finish, elapsed;
@@ -484,8 +484,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		elapsed.QuadPart /= freq.QuadPart;
 		dt = elapsed.QuadPart / 1000000.;
 	}
-
-	camera_destroy(cam);
 
 	glBindVertexArray(0);
 

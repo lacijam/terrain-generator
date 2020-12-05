@@ -1,6 +1,2 @@
-*.exe
-*.pdb
-run.bat
 build/
 .vs/
-.vscode/
