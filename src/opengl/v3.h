@@ -1,3 +1,5 @@
+#pragma once
+
 struct V3 {
     float x, y, z;
     V3& operator+=(V3 &v);

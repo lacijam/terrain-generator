@@ -9,6 +9,7 @@
 
 #include "matrix.h"
 #include "v3.h"
+#include "camera.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
@@ -19,15 +20,7 @@ struct GameData {
 	HWND hwnd;
 	HCURSOR cursor;
 	bool running;
-	float view[16];
-	float frustrum[16];
-	float FOV_Y;
-	float NEAR_CLIP;
-	float FAR_CLIP;
-	float yaw, pitch;
-	V3 camera_pos;
-	V3 camera_front;
-	V3 camera_up;
+	Camera *cur_cam;
 };
 
 void win32_get_client_size(HWND hwnd, int *w, int *h)
@@ -55,7 +48,7 @@ void win32_reset_cursor_pos(HWND hwnd)
 	SetCursorPos(x, y);
 }
 
-void APIENTRY 
+void APIENTRY  
 MessageCallback(GLenum source,
                  GLenum type,
                  GLuint id,
@@ -137,15 +130,9 @@ LRESULT handle_message(GameData* data, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		cy = HIWORD(lParam);
 
 		glViewport(0, 0, cx, cy);
-		data->FOV_Y = (90.f * (float)M_PI / 180.f);
-		data->NEAR_CLIP = 0.01f;
-		data->FAR_CLIP = 100.f;
-		float aspect = (float)cx / cy;
-		float top = data->NEAR_CLIP * tanf(data->FOV_Y / 2);
-		float bottom = -1 * top;
-		float left = bottom * aspect;
-		float right = top * aspect;
-		Matrix::frustrum(data->frustrum, left, right, bottom, top, data->NEAR_CLIP, data->FAR_CLIP);
+
+		assert(data->cur_cam);
+		camera_frustrum(data->cur_cam, cx, cy);
 	} break;
 
 	case WM_CAPTURECHANGED: {
@@ -247,6 +234,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 #endif
 
 	GameData data;
+	Camera *cam = camera_create();
+	data.cur_cam = cam;
 
 	WNDCLASSEX window_class = {};
 	window_class.cbSize = sizeof(WNDCLASSEX);
@@ -318,7 +307,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		glDebugMessageCallback(MessageCallback, 0);
 	#endif
 
-	wglSwapIntervalEXT(1);
+	wglSwapIntervalEXT(0);
 
 	glEnable(GL_DEPTH_TEST);
 
@@ -371,16 +360,16 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	bool success = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "res/teapot.obj");
 
-	// if (!warn.empty()) {
-	// 	std::cout << warn << std::endl;
-	// }
-	// if (!err.empty()) {
-	// 	std::cout << err << std::endl;
-	// }
-	// if (!success) {
-	// 	std::cout << "tinyobj::LoadObj something went wrong" << std::endl;
-	// 	return 0;
-	// }
+	if (!warn.empty()) {
+		printf("%s\n", warn.c_str());
+	}
+	if (!err.empty()) {
+		printf("%s\n", err.c_str());
+	}
+	if (!success) {
+		printf("tinyobj::LoadObj something went wrong\n");
+		return 0;
+	}
 	
 	unsigned vao, vbo, ebo;
 	glGenVertexArrays(1, &vao);
@@ -411,13 +400,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	float model[16];
     Matrix::identity(model);
-
-    Matrix::identity(data.view);
-	data.camera_pos = {0.f, 0.f, 0.f};
-	data.camera_front = {0.f, 0.f, -1.f};
-	data.camera_up = {0.f, 1.f, 0.f};
-	data.yaw = 0;
-	data.pitch = 0;
 
 	data.running = true;
 	double dt = 0;
@@ -452,25 +434,24 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			float x_off = p.x - mx;
 			float y_off = my - p.y;
 
-			data.yaw += x_off * 0.1f;
-			data.pitch += y_off * 0.1f;
-			if (data.pitch > 89.f) {
-				data.pitch = 89.f;
-			} else if (data.pitch <= -89.f) {
-				data.pitch = -89.f;
+			cam->yaw += x_off * 0.1f;
+			cam->pitch += y_off * 0.1f;
+			if (cam->pitch > 89.f) {
+				cam->pitch = 89.f;
+			} else if (cam->pitch <= -89.f) {
+				cam->pitch = -89.f;
 			}
 
 			V3 direction;
-			direction.x = cosf(Matrix::radians(data.yaw)) * cosf(Matrix::radians(data.pitch));
-			direction.y = sinf(Matrix::radians(data.pitch));
-			direction.z = sinf(Matrix::radians(data.yaw)) * cosf(Matrix::radians(data.pitch));
-			data.camera_front = Matrix::normalise(direction);
+			direction.x = cosf(Matrix::radians(cam->yaw)) * cosf(Matrix::radians(cam->pitch));
+			direction.y = sinf(Matrix::radians(cam->pitch));
+			direction.z = sinf(Matrix::radians(cam->yaw)) * cosf(Matrix::radians(cam->pitch));
+			cam->front = Matrix::normalise(direction);
 		}
 	
 		// MOVE THIS MOVE THIS MOVE THIS
 		// MOVEMENT CODE
 		// MOVE THIS MOVE THIS MOVE THIS
-		const float camera_speed = 40.0f * dt;
 		if (GetKeyState('Q') & KEY_DOWN) {
 			data.running = false;
 		} 
@@ -480,20 +461,20 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		}
 		
 		if (GetKeyState('W') & KEY_DOWN) {
-			data.camera_pos += camera_speed * data.camera_front;
+			cam->pos += cam->vel * dt * cam->front;
 		} else if (GetKeyState('S') & KEY_DOWN) {
-			data.camera_pos -= camera_speed * data.camera_front;
+			cam->pos -= cam->vel * dt * cam->front;
 		} 
 		
 		if (GetKeyState('A')  & KEY_DOWN) {
-			data.camera_pos -= Matrix::normalise(Matrix::cross(data.camera_front, data.camera_up)) * camera_speed;
+			cam->pos -= Matrix::normalise(Matrix::cross(cam->front, cam->up)) * cam->vel * dt;
 		} else if (GetKeyState('D') & KEY_DOWN) {
-			data.camera_pos += Matrix::normalise(Matrix::cross(data.camera_front, data.camera_up)) * camera_speed;
+			cam->pos += Matrix::normalise(Matrix::cross(cam->front, cam->up)) * cam->vel * dt;
 		}
 		//
 
 		// Camera
-		Matrix::look_at(data.view, data.camera_pos, data.camera_pos + data.camera_front, data.camera_up);
+		Matrix::look_at(cam->view, cam->pos, cam->pos + cam->front, cam->up);
 
 		glUseProgram(program.id);
 		
@@ -502,14 +483,14 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 		// Entity
 		Matrix::identity(model);
-		Matrix::scale(model, 1.f, 1.f, 1.f);
-		Matrix::translate(model, 0.f, -1.f, -10.f);
+		Matrix::translate(model, 0.f, 0.f, 0.f);
+		Matrix::scale(model, 10.f, 10.f, 10.f);
 
 		float mv[16], mvp[16];
 		Matrix::identity(mv);
 		Matrix::identity(mvp);
-		Matrix::multiply(mv, data.view, model);
-		Matrix::multiply(mvp, data.frustrum, mv);
+		Matrix::multiply(mv, cam->view, model);
+		Matrix::multiply(mvp, cam->frustrum, mv);
 		glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
 
 		glDrawElements(GL_TRIANGLES, (GLsizei)shapes[0].mesh.indices.size(), GL_UNSIGNED_INT, NULL);
@@ -525,8 +506,10 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		elapsed.QuadPart *= 1000000;
 		elapsed.QuadPart /= freq.QuadPart;
 		dt = elapsed.QuadPart / 1000000.;
-		printf("%f\n", dt);
+		//printf("%f\n", dt);
 	}
+
+	camera_destroy(cam);
 
 	glBindVertexArray(0);
 
