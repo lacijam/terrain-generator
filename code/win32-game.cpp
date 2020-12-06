@@ -11,168 +11,10 @@
 #include "v3.h"
 #include "camera.h"
 
-// #define TINYOBJLOADER_IMPLEMENTATION
-// #include "tiny_obj_loader.h"
-
 #define KEY_DOWN 0xF000
 
-struct GameData {
-	Camera *cur_cam;
-	bool running;
-};
-
-void on_create(GameData *data)
-{
-	data->cur_cam = camera_create();
-	data->running = true;
-}
-
-void on_destroy(GameData *data)
-{
-	camera_destroy(data->cur_cam);
-}
-
-void win32_reset_cursor_pos(HWND hwnd)
-{
-	RECT r;
-	POINT p;
-    GetClientRect(hwnd, &r);
-	p.x = r.right / 2;
-	p.y = r.bottom / 2;
-	ClientToScreen(hwnd, &p);
-	SetCursorPos(p.x, p.y);
-}
-
-void APIENTRY  
-MessageCallback(GLenum source,
-                 GLenum type,
-                 GLuint id,
-                 GLenum severity,
-                 GLsizei length,
-                 const GLchar* message,
-                 const void* userParam)
-{
-	fprintf(stderr, ">>>GLCALLBACK: %s id=%u %s\n",
-           (type == GL_DEBUG_TYPE_ERROR ? "ERROR" : "" ),
-            id, message);
-}
-
-bool gl_check_shader_compile_log(unsigned shader)
-{
-	int success;
-	char info_log[512];
-	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-	if (!success)
-	{
-		glGetShaderInfoLog(shader, 512, 0, info_log);
-		printf(">>>Shader compilation error: %s", info_log);
-	};
-
-	return success;
-}
-
-bool gl_check_program_link_log(unsigned program)
-{
-	int success;
-	char info_log[512];
-	glGetProgramiv(program, GL_LINK_STATUS, &success);
-	if (!success)
-	{
-		glGetProgramInfoLog(program, 512, NULL, info_log);
-		printf(">>>Shader program linking error: %s", info_log);
-	}
-
-	return success;
-}
-
-bool create_and_attach_shader(unsigned program_id, const char* src, GLenum shader_type)
-{
-    unsigned shader = glCreateShader(shader_type);
-	if (!shader) {
-		return false;
-	}
-	
-    glShaderSource(shader, 1, &src, 0);
-    glCompileShader(shader);
-    glAttachShader(program_id, shader);
-    if (!gl_check_shader_compile_log(shader)) {
-        return false;
-    }
-
-    return true;
-}
-
-// TODO: This is redundant atm, vertex_shader and fragment_shader
-// 		 are deleted when successfully linked to program.
-struct ShaderProgram {
-	unsigned id;
-	unsigned vertex_shader;
-	unsigned fragment_shader;
-};
-
-LRESULT handle_message(GameData* data, HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-	switch (uMsg)
-	{
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		data->running = false;
-		return 0;
-
-	case WM_SIZE: {
-		int cx, cy;
-		cx = LOWORD(lParam);
-		cy = HIWORD(lParam);
-
-		glViewport(0, 0, cx, cy);
-
-		camera_frustrum(data->cur_cam, cx, cy);
-	} break;
-
-	case WM_CAPTURECHANGED: {
-		SetCursor((HCURSOR)LoadImage(0, IDC_ARROW, IMAGE_CURSOR, 0, 0, 0));
-	} break;
-
-	case WM_LBUTTONDOWN: {
-		if (GetCapture() != hwnd) {
-			SetCapture(hwnd);
-			SetCursor(0);
-			win32_reset_cursor_pos(hwnd);
-		}
-	} break;
-
-	case WM_KILLFOCUS: {
-		ReleaseCapture();
-	} break;
-
-	default:
-		return DefWindowProc(hwnd, uMsg, wParam, lParam);
-	}
-
-	return TRUE;
-}
-
-LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-	if (uMsg == WM_CREATE) {
-		CREATESTRUCT* create_struct = reinterpret_cast<CREATESTRUCT*>(lParam);
-		GameData* data = reinterpret_cast<GameData*>(create_struct->lpCreateParams);
-		SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)data);
-
-		on_create(data);
-	}
-
-	LONG_PTR ptr = GetWindowLongPtr(hwnd, GWLP_USERDATA);
-	GameData* data = reinterpret_cast<GameData*>(ptr);
-	if (data) {
-		return handle_message(data, hwnd, uMsg, wParam, lParam);
-	}
-
-	return DefWindowProc(hwnd, uMsg, wParam, lParam);
-}
-
 // Creates a dummy window and gl context to load extensions.
-void init_opengl_extensions()
+void win32_init_opengl_extensions()
 {
 	WNDCLASSA window_class = {};
 	window_class.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
@@ -217,6 +59,259 @@ void init_opengl_extensions()
 	DestroyWindow(dummy_window);
 }
 
+// TODO: This is redundant atm, vertex_shader and fragment_shader
+// 		 are deleted when successfully linked to program.
+struct ShaderProgram {
+	unsigned id;
+	unsigned vertex_shader;
+	unsigned fragment_shader;
+};
+
+struct GameData {
+	Camera *cur_cam;
+	bool running;
+	bool has_capture;
+	bool has_focus;
+	unsigned vao, vbo, ebo;
+	ShaderProgram program;
+	HGLRC gl_context;
+};
+
+void APIENTRY  
+MessageCallback(GLenum source,
+                 GLenum type,
+                 GLuint id,
+                 GLenum severity,
+                 GLsizei length,
+                 const GLchar* message,
+                 const void* userParam)
+{
+	fprintf(stderr, ">>>GLCALLBACK: %s id=%u %s\n",
+           (type == GL_DEBUG_TYPE_ERROR ? "ERROR" : "" ),
+            id, message);
+}
+
+void win32_create_gl_context(GameData *data, HWND hwnd)
+{
+	int pixel_format_attribs[] =
+	{
+		WGL_DRAW_TO_WINDOW_ARB, GL_TRUE,
+		WGL_SUPPORT_OPENGL_ARB, GL_TRUE,
+		WGL_DOUBLE_BUFFER_ARB, GL_TRUE,
+		WGL_PIXEL_TYPE_ARB, WGL_TYPE_RGBA_ARB,
+		WGL_COLOR_BITS_ARB, 32,
+		WGL_DEPTH_BITS_ARB, 24,
+		WGL_STENCIL_BITS_ARB, 8,
+		0
+	};
+
+	HDC dc = GetDC(hwnd);
+	int pixel_format;
+	UINT num_formats;
+	wglChoosePixelFormatARB(dc, pixel_format_attribs, 0, 1, &pixel_format, &num_formats);
+	if (!num_formats) {
+		MessageBoxA(0, "Failed to choose a valid pixel format", "Fatal Error", 0);
+	}
+
+	PIXELFORMATDESCRIPTOR pfd;
+	DescribePixelFormat(dc, pixel_format, sizeof(pfd), &pfd);
+	if (!SetPixelFormat(dc, pixel_format, &pfd)) {
+		MessageBoxA(0, "Failed to set a pixel format", "Fatal Error", 0);
+	}
+
+	int attribs[] = {
+		WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+		WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+		#ifdef _DEBUG
+		WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB,
+		#else
+		WGL_CONTEXT_FLAGS_ARB, 0,
+		#endif
+		0
+	};
+
+	data->gl_context = wglCreateContextAttribsARB(dc, 0, attribs);
+
+	if (!wglMakeCurrent(dc, data->gl_context)) {
+		MessageBoxA(0, "Something went wrong during OpenGL 3.3 context current", "Fatal Error", 0);
+	}
+
+	#ifdef _DEBUG
+		printf("Created OpenGL context, version=%s\nEnabling debug output\n", glGetString(GL_VERSION));
+		glEnable(GL_DEBUG_OUTPUT);
+		glDebugMessageCallback(MessageCallback, 0);
+	#endif
+
+	glEnable(GL_DEPTH_TEST);
+
+	wglSwapIntervalEXT(0);
+}
+
+void win32_on_create(GameData *data, HWND hwnd)
+{
+	win32_init_opengl_extensions();
+	win32_create_gl_context(data, hwnd);
+
+	data->cur_cam = camera_create();
+	data->has_capture = false;
+	data->has_focus = true;
+	data->running = true;
+}
+
+void win32_on_destroy(GameData *data)
+{
+	camera_destroy(data->cur_cam);
+
+	glBindVertexArray(0);
+
+	glDeleteBuffers(1, &data->ebo);
+	glDeleteBuffers(1, &data->vbo);
+	glDeleteVertexArrays(1, &data->vao);
+    glDeleteProgram(data->program.id);
+
+	wglMakeCurrent(NULL, NULL);
+	wglDeleteContext(data->gl_context);
+
+	data->running = false;
+}
+
+void win32_reset_cursor_pos(HWND hwnd)
+{
+	RECT r;
+	POINT p;
+    GetClientRect(hwnd, &r);
+	p.x = r.right / 2;
+	p.y = r.bottom / 2;
+	ClientToScreen(hwnd, &p);
+	SetCursorPos(p.x, p.y);
+}
+
+bool gl_check_shader_compile_log(unsigned shader)
+{
+	int success;
+	char info_log[512];
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+	if (!success)
+	{
+		glGetShaderInfoLog(shader, 512, 0, info_log);
+		printf(">>>Shader compilation error: %s", info_log);
+	};
+
+	return success;
+}
+
+bool gl_check_program_link_log(unsigned program)
+{
+	int success;
+	char info_log[512];
+	glGetProgramiv(program, GL_LINK_STATUS, &success);
+	if (!success)
+	{
+		glGetProgramInfoLog(program, 512, NULL, info_log);
+		printf(">>>Shader program linking error: %s", info_log);
+	}
+
+	return success;
+}
+
+bool gl_create_and_attach_shader(unsigned program_id, const char* src, GLenum shader_type)
+{
+    unsigned shader = glCreateShader(shader_type);
+	if (!shader) {
+		return false;
+	}
+	
+    glShaderSource(shader, 1, &src, 0);
+    glCompileShader(shader);
+    glAttachShader(program_id, shader);
+    if (!gl_check_shader_compile_log(shader)) {
+        return false;
+    }
+
+    return true;
+}
+
+LRESULT handle_message(GameData* data, HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	switch (uMsg)
+	{
+	case WM_CLOSE:
+		win32_on_destroy(data);	
+		DestroyWindow(hwnd);
+		return 0;
+
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		return 0;
+
+	case WM_SIZE: {
+		int cx, cy;
+		cx = LOWORD(lParam);
+		cy = HIWORD(lParam);
+
+		glViewport(0, 0, cx, cy);
+
+		camera_frustrum(data->cur_cam, cx, cy);
+	} break;
+
+	case WM_CAPTURECHANGED: {
+		SetCursor((HCURSOR)LoadImage(0, IDC_ARROW, IMAGE_CURSOR, 0, 0, 0));
+		data->has_capture = false;
+	} break;
+
+	case WM_LBUTTONDOWN: {
+		if (GetCapture() != hwnd) {
+			SetCapture(hwnd);
+			SetCursor(0);
+			win32_reset_cursor_pos(hwnd);
+			data->has_capture = true;
+		}
+	} break;
+
+	// Handle this here to keep hwnd out of game logic.
+	// Q will not quit out in the future.
+	case WM_KEYDOWN: {
+		if (wParam == 'Q') {
+			PostMessage(hwnd, WM_CLOSE, 0, 0);
+		}
+	} break;
+
+	case WM_SETFOCUS: {
+		data->has_focus = true;
+	} break;
+
+	case WM_KILLFOCUS: {
+		ReleaseCapture();
+		data->has_focus = false;
+	} break;
+
+	default:
+		return DefWindowProc(hwnd, uMsg, wParam, lParam);
+	}
+
+	return TRUE;
+}
+
+LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	if (uMsg == WM_CREATE) {
+		CREATESTRUCT* create_struct = reinterpret_cast<CREATESTRUCT*>(lParam);
+		GameData* data = reinterpret_cast<GameData*>(create_struct->lpCreateParams);
+		SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)data);
+
+		win32_on_create(data, hwnd);
+	}
+
+	LONG_PTR ptr = GetWindowLongPtr(hwnd, GWLP_USERDATA);
+	GameData* data = reinterpret_cast<GameData*>(ptr);
+	if (data) {
+		return handle_message(data, hwnd, uMsg, wParam, lParam);
+	}
+
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
 	// Allocate a new console and redirect stdout/in to it.
@@ -248,65 +343,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		MessageBoxA(0, "Failed to create window", "Fatal Error", 0);
 		return 1;
 	}
-
-	init_opengl_extensions();
-
-	int pixel_format_attribs[] =
-	{
-		WGL_DRAW_TO_WINDOW_ARB, GL_TRUE,
-		WGL_SUPPORT_OPENGL_ARB, GL_TRUE,
-		WGL_DOUBLE_BUFFER_ARB, GL_TRUE,
-		WGL_PIXEL_TYPE_ARB, WGL_TYPE_RGBA_ARB,
-		WGL_COLOR_BITS_ARB, 32,
-		WGL_DEPTH_BITS_ARB, 24,
-		WGL_STENCIL_BITS_ARB, 8,
-		0
-	};
-
-	HDC dc = GetDC(hwnd);
-	int pixel_format;
-	UINT num_formats;
-	wglChoosePixelFormatARB(dc, pixel_format_attribs, 0, 1, &pixel_format, &num_formats);
-	if (!num_formats) {
-		MessageBoxA(0, "Failed to choose a valid pixel format", "Fatal Error", 0);
-		return 1;
-	}
-
-	PIXELFORMATDESCRIPTOR pfd;
-	DescribePixelFormat(dc, pixel_format, sizeof(pfd), &pfd);
-	if (!SetPixelFormat(dc, pixel_format, &pfd)) {
-		MessageBoxA(0, "Failed to set a pixel format", "Fatal Error", 0);
-		return 1;
-	}
-
-	int attribs[] = {
-		WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
-		WGL_CONTEXT_MINOR_VERSION_ARB, 3,
-		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-		#ifdef _DEBUG
-		WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB,
-		#else
-		WGL_CONTEXT_FLAGS_ARB, 0,
-		#endif
-		0
-	};
-
-	HGLRC gl_context = wglCreateContextAttribsARB(dc, 0, attribs);
-
-	if (!wglMakeCurrent(dc, gl_context)) {
-		MessageBoxA(0, "Something went wrong during OpenGL 3.3 context current", "Fatal Error", 0);
-		return 1;
-	}
-
-	#ifdef _DEBUG
-		printf("Created OpenGL context, version=%s\nEnabling debug output\n", glGetString(GL_VERSION));
-		glEnable(GL_DEBUG_OUTPUT);
-		glDebugMessageCallback(MessageCallback, 0);
-	#endif
-
-	wglSwapIntervalEXT(0);
-
-	glEnable(GL_DEPTH_TEST);
 
 	const char* vertex_source = R"(
 		#version 330
@@ -346,39 +382,34 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		0, 1, 2
 	};
 
-	ShaderProgram program;
-	program.id = glCreateProgram();
-	create_and_attach_shader(program.id, vertex_source, GL_VERTEX_SHADER);
-	create_and_attach_shader(program.id, fragment_source, GL_FRAGMENT_SHADER);
-	glLinkProgram(program.id);
-    glUseProgram(program.id);
-    if (!gl_check_program_link_log(program.id)) {
+	data.program.id = glCreateProgram();
+	gl_create_and_attach_shader(data.program.id, vertex_source, GL_VERTEX_SHADER);
+	gl_create_and_attach_shader(data.program.id, fragment_source, GL_FRAGMENT_SHADER);
+	glLinkProgram(data.program.id);
+    glUseProgram(data.program.id);
+    if (!gl_check_program_link_log(data.program.id)) {
 		MessageBoxA(0, "Something went wrong during shader program linking!", "Fatal Error", 0);
 		return 1;
 	}
 
-	unsigned a_pos = glGetAttribLocation(program.id, "a_pos");
-	unsigned transform_loc = glGetUniformLocation(program.id, "transform");
+	unsigned a_pos = glGetAttribLocation(data.program.id, "a_pos");
+	unsigned transform_loc = glGetUniformLocation(data.program.id, "transform");
 
-	unsigned vao, vbo, ebo;
-	glGenVertexArrays(1, &vao);
-	glBindVertexArray(vao);
+	glGenVertexArrays(1, &data.vao);
+	glBindVertexArray(data.vao);
 
-	glGenBuffers(1, &vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glGenBuffers(1, &data.vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, data.vbo);
 	glBufferData(GL_ARRAY_BUFFER, 9 * sizeof(float), vertices, GL_STATIC_DRAW);
 
-	glGenBuffers(1, &ebo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+	glGenBuffers(1, &data.ebo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, data.ebo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3 * sizeof(unsigned), indices, GL_STATIC_DRAW);
 
 	glVertexAttribPointer(a_pos, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(a_pos);
 
 	ShowWindow(hwnd, nShowCmd);
-
-	SetCursor(0);
-	SetCapture(hwnd);
 
 	float model[16];
     Matrix::identity(model);
@@ -394,103 +425,96 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
-		} 
-
-		// If ESCAPE is pressed to release the cursor
-		// then we dont want to update the camera.
-		if (GetCapture() == hwnd)
-		{
-			POINT p;
-			GetCursorPos(&p);
-			ScreenToClient(hwnd, &p);
-
-			camera_update(data.cur_cam, p.x, p.y);
-
-			win32_reset_cursor_pos(hwnd);
 		}
-	
-		if (GetKeyState('Q') & KEY_DOWN) {
-			data.running = false;
-		} else if (GetKeyState(VK_ESCAPE) & KEY_DOWN) {
-			ReleaseCapture();
-		} else {
-			if (GetKeyState('W') & KEY_DOWN) {
-				camera_move_forward(data.cur_cam, dt);
-			} 
-			
-			else if (GetKeyState('S') & KEY_DOWN) {
-				camera_move_backward(data.cur_cam, dt);
-			} 
-			
-			if (GetKeyState('A')  & KEY_DOWN) {
-				camera_move_left(data.cur_cam, dt);
-			} else if (GetKeyState('D') & KEY_DOWN) {
-				camera_move_right(data.cur_cam, dt);
+
+		if (data.has_focus) {
+			if (data.has_capture) {
+				POINT p;
+				GetCursorPos(&p);
+				ScreenToClient(hwnd, &p);
+
+				camera_update(data.cur_cam, p.x, p.y);
+
+				win32_reset_cursor_pos(hwnd);
 			}
-		}
+	
+			if (GetKeyState('Q') & KEY_DOWN) {
+			} else if (GetKeyState(VK_ESCAPE) & KEY_DOWN) {
+				ReleaseCapture();
+			} else {
+				if (GetKeyState('W') & KEY_DOWN) {
+					camera_move_forward(data.cur_cam, dt);
+				} 
+				
+				else if (GetKeyState('S') & KEY_DOWN) {
+					camera_move_backward(data.cur_cam, dt);
+				} 
+				
+				if (GetKeyState('A')  & KEY_DOWN) {
+					camera_move_left(data.cur_cam, dt);
+				} else if (GetKeyState('D') & KEY_DOWN) {
+					camera_move_right(data.cur_cam, dt);
+				}
+			}
 
-		camera_look_at(data.cur_cam);
+			camera_look_at(data.cur_cam);
 
-		glUseProgram(program.id);
+			glUseProgram(data.program.id);
+			
+			glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			for (unsigned i = 0; i < 1000; i += 10) {
+				for (unsigned j = 0; j < 1000; j += 10) {
+					Matrix::identity(model);
+					Matrix::translate(model, j, 0.f, i);
+					Matrix::rotate_x(model, 90);
+					Matrix::scale(model, 10.f, 10.f, 10.f);
+
+					float mv[16], mvp[16];
+					Matrix::identity(mv);
+					Matrix::identity(mvp);
+					Matrix::multiply(mv, data.cur_cam->view, model);
+					Matrix::multiply(mvp, data.cur_cam->frustrum, mv);
+					glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
+
+					glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
+				}
+			}
+
+			for (unsigned i = 0; i < 1000; i += 10) {
+				for (unsigned j = 0; j < 1000; j += 10) {
+					Matrix::identity(model);
+					Matrix::translate(model, j + 5, 0.f, i);
+					Matrix::rotate_y(model, 180);
+					Matrix::rotate_x(model, 90);
+					Matrix::scale(model, 10.f, 10.f, 10.f);
+
+					float mv[16], mvp[16];
+					Matrix::identity(mv);
+					Matrix::identity(mvp);
+					Matrix::multiply(mv, data.cur_cam->view, model);
+					Matrix::multiply(mvp, data.cur_cam->frustrum, mv);
+					glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
+
+					glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
+				}
+			}
+
+			SwapBuffers(wglGetCurrentDC());
 		
-		glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glUseProgram(0);
 
-		for (unsigned i = 0; i < 1000; i += 10) {
-			for (unsigned j = 0; j < 1000; j += 10) {
-			Matrix::identity(model);
-			Matrix::translate(model, j, 0.f, i);
-			Matrix::rotate_x(model, 90);
-			Matrix::scale(model, 10.f, 10.f, 10.f);
-
-			float mv[16], mvp[16];
-			Matrix::identity(mv);
-			Matrix::identity(mvp);
-			Matrix::multiply(mv, data.cur_cam->view, model);
-			Matrix::multiply(mvp, data.cur_cam->frustrum, mv);
-			glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
-
-			glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
-			}
+			LARGE_INTEGER finish, elapsed;
+			QueryPerformanceCounter(&finish);
+			elapsed.QuadPart = finish.QuadPart - start.QuadPart;
+			elapsed.QuadPart *= 1000000;
+			elapsed.QuadPart /= freq.QuadPart;
+			dt = elapsed.QuadPart / 1000000.;
+		} else if (data.running) {
+			WaitMessage();
 		}
-
-		for (unsigned i = 0; i < 1000; i += 10) {
-			for (unsigned j = 0; j < 1000; j += 10) {
-				Matrix::identity(model);
-				Matrix::translate(model, j + 5, 0.f, i);
-				Matrix::rotate_y(model, 180);
-				Matrix::rotate_x(model, 90);
-				Matrix::scale(model, 10.f, 10.f, 10.f);
-
-				float mv[16], mvp[16];
-				Matrix::identity(mv);
-				Matrix::identity(mvp);
-				Matrix::multiply(mv, data.cur_cam->view, model);
-				Matrix::multiply(mvp, data.cur_cam->frustrum, mv);
-				glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
-
-				glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
-			}
-		}
-
-		SwapBuffers(wglGetCurrentDC());
-	
-		glUseProgram(0);
-
-		LARGE_INTEGER finish, elapsed;
-		QueryPerformanceCounter(&finish);
-		elapsed.QuadPart = finish.QuadPart - start.QuadPart;
-		elapsed.QuadPart *= 1000000;
-		elapsed.QuadPart /= freq.QuadPart;
-		dt = elapsed.QuadPart / 1000000.;
 	}
-
-	glBindVertexArray(0);
-
-	glDeleteBuffers(1, &ebo);
-	glDeleteBuffers(1, &vbo);
-	glDeleteVertexArrays(1, &vao);
-    glDeleteProgram(program.id);
 
 	return 0;
 }
