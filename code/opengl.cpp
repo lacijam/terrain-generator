@@ -1,5 +1,5 @@
 #include <Windows.h>
-#include "opengl_loader.h"
+#include "opengl.h"
 
 #include <ctype.h>
 #include <string.h>
