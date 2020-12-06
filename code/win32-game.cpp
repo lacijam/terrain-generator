@@ -6,13 +6,21 @@
 #include "v3.h"
 #include "camera.h"
 
+#include <assert.h>
+
 #define KEY_DOWN 0xF000
+#include <stdlib.h>
+#include <time.h>
 
 static Camera *cur_cam;
 static unsigned vao, vbo, ebo;
 static unsigned shader_program;
 static unsigned transform_loc;
+static unsigned object_colour_loc;
+static unsigned model_loc;
 static float model[16];
+static const int chunk_width = 100;
+static const int chunk_height = 100;
 
 void on_size(int cx, int cy)
 {
@@ -27,13 +35,17 @@ void on_create()
 		#version 330
 
 		in vec3 a_pos;
+		in vec3 a_nor;
 		out vec3 v_pos;
+		out vec3 v_nor;
 
+		uniform mat4 model;
 		uniform mat4 transform;
 
 		void main()
 		{
-			v_pos = a_pos;
+			v_pos = vec3(model * vec4(a_pos, 1.0));
+			v_nor = a_nor;
 			gl_Position = transform * vec4(a_pos, 1.0);
 		}
 	)";
@@ -42,24 +54,87 @@ void on_create()
 		#version 330
 		
 		in vec3 v_pos;
+		in vec3 v_nor;
+
+		uniform vec3 object_colour;
+		uniform vec3 light_colour;
 
 		out vec4 fragment;
 
 		void main()
 		{
-			fragment = vec4(v_pos.x, v_pos.x, v_pos.x, 1.0);
+			vec3 light_pos = vec3(500.0f, 500.0f, 500.0f);
+			float dist = distance(light_pos, v_pos);
+			float attenuation = 1.0f / (1.0f + 0.01 * dist + 0.0001 * dist * dist);
+			vec3 light_dir = normalize(light_pos - v_pos);
+			vec3 light_colour = vec3(1.0f);
+			float diff = max(dot(v_nor, light_dir), 0.0f);
+			vec3 diffuse = diff * light_colour * 10;
+			float ambient_strength = 0.1f;
+			vec3 ambient = ambient_strength * light_colour;
+			fragment = vec4((ambient + diffuse) * attenuation * object_colour, 1.0);
 		}
 	)";
 
-	float vertices[9] = {
-		-0.5f,  -0.5f,  0.0f,
-		 0.5f,  -0.5f,  0.0f,
-		 0.0f,   0.5f,  0.0f
+	struct Vertex {
+		V3 pos;
+		V3 nor;
 	};
 
-	unsigned indices[3] {
-		0, 1, 2
+	Vertex vertices[chunk_height * chunk_width];
+	for (int j = 0; j < chunk_height; j++) {
+		for (int i = 0; i < chunk_width; i++) {
+			unsigned index = j * chunk_width + i;
+			vertices[index].pos.x = i;
+			vertices[index].pos.y = (rand() % 100) / 100.f;
+			vertices[index].pos.z = j;
+			vertices[index].nor = {};
+		}
+	}
+
+	struct QuadIndices {
+		unsigned i[6];
 	};
+
+	const int row_quads = chunk_height - 1;
+	const int col_quads = chunk_width - 1;
+	QuadIndices indices[row_quads * col_quads];
+	for (int j = 0; j < row_quads; j++) {
+		for (int i = 0; i < col_quads; i++) {
+			unsigned pos = j * col_quads + i;
+			indices[pos].i[0] = j * chunk_width + i;
+			indices[pos].i[1] = j * chunk_width + i + 1;
+			indices[pos].i[2] = (j + 1) * chunk_width + i;
+			
+			indices[pos].i[3] = j * chunk_width + i + 1;
+			indices[pos].i[4] = (j + 1) * chunk_width + i + 1;
+			indices[pos].i[5] = (j + 1) * chunk_width + i;
+		}
+	}
+
+	for (int j = 0; j < row_quads; j++) {
+		for (int i = 0; i < col_quads; i++) {
+			unsigned pos = j * col_quads + i;
+			for (int tri = 0; tri < 2; tri++) {
+				Vertex *a = &vertices[indices[pos].i[tri * 3 + 0]];
+				Vertex *b = &vertices[indices[pos].i[tri * 3 + 1]];
+				Vertex *c = &vertices[indices[pos].i[tri * 3 + 2]];
+				V3 cp = Matrix::cross(b->pos - a->pos, c->pos - a->pos);
+				cp = cp * -1.f;
+				a->nor += cp;
+				b->nor += cp;
+				c->nor += cp;
+			}
+		}
+	}
+
+	for (int j = 0; j < chunk_height; j++) {
+		for (int i = 0; i < chunk_width; i++) {
+			unsigned index = j * chunk_width + i;
+			vertices[index].nor = Matrix::normalise(vertices[index].nor);
+		}
+	}
+
 
 	shader_program = glCreateProgram();
 	gl_create_and_attach_shader(shader_program, vertex_source, GL_VERTEX_SHADER);
@@ -71,21 +146,27 @@ void on_create()
 	}
 
 	unsigned a_pos = glGetAttribLocation(shader_program, "a_pos");
-	unsigned transform_loc = glGetUniformLocation(shader_program, "transform");
+	unsigned a_nor = glGetAttribLocation(shader_program, "a_nor");
+	transform_loc = glGetUniformLocation(shader_program, "transform");
+	object_colour_loc = glGetUniformLocation(shader_program, "object_colour");
+	model_loc = glGetUniformLocation(shader_program, "model");
 
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
 
 	glGenBuffers(1, &vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glBufferData(GL_ARRAY_BUFFER, 9 * sizeof(float), vertices, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, chunk_height * chunk_width * 6 * sizeof(float), vertices, GL_STATIC_DRAW);
 
 	glGenBuffers(1, &ebo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3 * sizeof(unsigned), indices, GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, row_quads * col_quads * 6 * sizeof(unsigned), indices, GL_STATIC_DRAW);
 
-	glVertexAttribPointer(a_pos, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glVertexAttribPointer(a_pos, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(a_pos);
+
+	glVertexAttribPointer(a_nor, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(a_nor);
 
     Matrix::identity(model);
 }
@@ -184,8 +265,10 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
+	srand(time(NULL));
 	// Allocate a new console and redirect stdout/in to it.
 	#ifdef _DEBUG
 		AllocConsole();
@@ -251,16 +334,19 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			camera_look_at(cur_cam);
 
 			glUseProgram(shader_program);
+			float terrain_colour[3] = { 0.0f, 1.0f, 0.0 };
+			glUniform3fv(object_colour_loc, 1, terrain_colour);
 			
 			glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			for (unsigned i = 0; i < 1000; i += 10) {
-				for (unsigned j = 0; j < 1000; j += 10) {
+			for (int j = 0; j < 10; j++) {
+				for (int i = 0; i < 10; i++) {
 					Matrix::identity(model);
-					Matrix::translate(model, j, 0.f, i);
-					Matrix::rotate_x(model, 90);
-					Matrix::scale(model, 10.f, 10.f, 10.f);
+					Matrix::translate(model, i * (chunk_width - 1), 0.f, j * (chunk_height -1));
+					Matrix::scale(model, 1.f, 0, 1.f);
+
+					glUniformMatrix4fv(model_loc, 1, GL_FALSE, model);
 
 					float mv[16], mvp[16];
 					Matrix::identity(mv);
@@ -269,28 +355,10 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 					Matrix::multiply(mvp, cur_cam->frustrum, mv);
 					glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
 
-					glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
+					glDrawElements(GL_TRIANGLES, (chunk_width - 1) * (chunk_height - 1) * 6, GL_UNSIGNED_INT, NULL);
 				}
 			}
 
-			for (unsigned i = 0; i < 1000; i += 10) {
-				for (unsigned j = 0; j < 1000; j += 10) {
-					Matrix::identity(model);
-					Matrix::translate(model, j + 5, 0.f, i);
-					Matrix::rotate_y(model, 180);
-					Matrix::rotate_x(model, 90);
-					Matrix::scale(model, 10.f, 10.f, 10.f);
-
-					float mv[16], mvp[16];
-					Matrix::identity(mv);
-					Matrix::identity(mvp);
-					Matrix::multiply(mv, cur_cam->view, model);
-					Matrix::multiply(mvp, cur_cam->frustrum, mv);
-					glUniformMatrix4fv(transform_loc, 1, GL_FALSE, mvp);
-
-					glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, NULL);
-				}
-			}
 
 			SwapBuffers(wglGetCurrentDC());
 		

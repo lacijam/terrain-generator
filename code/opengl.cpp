@@ -34,6 +34,7 @@ GLF(GetProgramInfoLog, GETPROGRAMINFOLOG);\
 GLF(GetAttribLocation, GETATTRIBLOCATION);\
 GLF(GetUniformLocation, GETUNIFORMLOCATION);\
 GLF(UniformMatrix4fv, UNIFORMMATRIX4FV);\
+GLF(Uniform3fv, UNIFORM3FV);\
 GLF(DebugMessageCallback, DEBUGMESSAGECALLBACK);
 GL_FUNCS
 #undef GLF
