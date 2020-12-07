@@ -1,9 +1,16 @@
+#pragma once
+
 #include <gl/GL.h>
 #include "gl/glext.h"
 #include "gl/wglext.h"
 
-extern void load_gl_extensions();
-extern bool wgl_is_supported(const char*);
+void gl_load_extensions();
+bool wgl_is_supported(const char*);
+bool gl_check_shader_compile_log(unsigned shader);
+bool gl_check_program_link_log(unsigned program);
+//bool gl_create_and_attach_shader(unsigned program_id, const char* src, GLenum shader_type);
+void APIENTRY gl_message_callback(GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar*, const void*);
+unsigned gl_load_shader_from_file(const char *filename, unsigned program, int type);
 
 #define GLF(name, uppername) extern PFNGL##uppername##PROC gl##name
 #define GL_FUNCS \

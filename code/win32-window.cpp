@@ -2,6 +2,8 @@
 
 #include <assert.h>
 
+#include "opengl.h"
+
 // Creates a dummy window and gl context to load extensions.
 static void win32_init_opengl_extensions()
 {
@@ -37,7 +39,7 @@ static void win32_init_opengl_extensions()
 		MessageBoxA(0, "Something went wrong during dummy context creation!", "Error", 0);
 	}
 
-	load_gl_extensions();
+	gl_load_extensions();
 	if (!wgl_is_supported("WGL_ARB_create_context")) {
 		MessageBoxA(0, "Something went wrong during OpenGL extension loading!", "Fatal Error", 0);
 	}

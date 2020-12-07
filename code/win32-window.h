@@ -5,7 +5,6 @@
 #endif
 
 #include <windows.h>
-#include "opengl.h"
 
 struct Win32Window {
     HWND hwnd;

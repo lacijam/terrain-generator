@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #include "win32-window.h"
-#include "opengl-util.h"
+#include "opengl.h"
 #include "matrix.h"
 #include "v3.h"
 #include "camera.h"
@@ -14,11 +14,15 @@
 
 static Camera *cur_cam;
 static unsigned vao, vbo, ebo;
+
 static unsigned shader_program;
+static unsigned lighting_shader_program;
+
 static unsigned transform_loc;
 static unsigned object_colour_loc;
 static unsigned model_loc;
-static float model[16];
+static unsigned light_pos_loc;
+
 static const int chunk_width = 100;
 static const int chunk_height = 100;
 
@@ -31,51 +35,6 @@ void on_create()
 {
 	cur_cam = camera_create();
 
-	const char* vertex_source = R"(
-		#version 330
-
-		in vec3 a_pos;
-		in vec3 a_nor;
-		out vec3 v_pos;
-		out vec3 v_nor;
-
-		uniform mat4 model;
-		uniform mat4 transform;
-
-		void main()
-		{
-			v_pos = vec3(model * vec4(a_pos, 1.0));
-			v_nor = a_nor;
-			gl_Position = transform * vec4(a_pos, 1.0);
-		}
-	)";
-	
-	const char* fragment_source = R"(
-		#version 330
-		
-		in vec3 v_pos;
-		in vec3 v_nor;
-
-		uniform vec3 object_colour;
-		uniform vec3 light_colour;
-
-		out vec4 fragment;
-
-		void main()
-		{
-			vec3 light_pos = vec3(500.0f, 500.0f, 500.0f);
-			float dist = distance(light_pos, v_pos);
-			float attenuation = 1.0f / (1.0f + 0.01 * dist + 0.0001 * dist * dist);
-			vec3 light_dir = normalize(light_pos - v_pos);
-			vec3 light_colour = vec3(1.0f);
-			float diff = max(dot(v_nor, light_dir), 0.0f);
-			vec3 diffuse = diff * light_colour * 10;
-			float ambient_strength = 0.1f;
-			vec3 ambient = ambient_strength * light_colour;
-			fragment = vec4((ambient + diffuse) * attenuation * object_colour, 1.0);
-		}
-	)";
-
 	struct Vertex {
 		V3 pos;
 		V3 nor;
@@ -86,7 +45,7 @@ void on_create()
 		for (int i = 0; i < chunk_width; i++) {
 			unsigned index = j * chunk_width + i;
 			vertices[index].pos.x = i;
-			vertices[index].pos.y = (rand() % 100) / 100.f;
+			vertices[index].pos.y = (rand() % 1000) / 1000.f;
 			vertices[index].pos.z = j;
 			vertices[index].nor = {};
 		}
@@ -135,10 +94,16 @@ void on_create()
 		}
 	}
 
+	unsigned default_vertex_shader;
+	unsigned default_fragment_shader;
+	unsigned lighting_fragment_shader;
 
 	shader_program = glCreateProgram();
-	gl_create_and_attach_shader(shader_program, vertex_source, GL_VERTEX_SHADER);
-	gl_create_and_attach_shader(shader_program, fragment_source, GL_FRAGMENT_SHADER);
+	lighting_shader_program = glCreateProgram();
+	default_vertex_shader = gl_load_shader_from_file("default_vertex_shader.gl", shader_program, GL_VERTEX_SHADER);
+	default_fragment_shader = gl_load_shader_from_file("default_fragment_shader.gl", shader_program, GL_FRAGMENT_SHADER);
+	glAttachShader(shader_program, default_vertex_shader);
+	glAttachShader(shader_program, default_fragment_shader);
 	glLinkProgram(shader_program);
     glUseProgram(shader_program);
     if (!gl_check_program_link_log(shader_program)) {
@@ -147,9 +112,26 @@ void on_create()
 
 	unsigned a_pos = glGetAttribLocation(shader_program, "a_pos");
 	unsigned a_nor = glGetAttribLocation(shader_program, "a_nor");
+	unsigned a_lighting_pos = glGetAttribLocation(lighting_shader_program, "a_pos");
+
 	transform_loc = glGetUniformLocation(shader_program, "transform");
 	object_colour_loc = glGetUniformLocation(shader_program, "object_colour");
 	model_loc = glGetUniformLocation(shader_program, "model");
+	light_pos_loc = glGetUniformLocation(shader_program, "light_pos");
+
+	glUseProgram(0);
+
+	glAttachShader(lighting_shader_program, default_vertex_shader);
+	glAttachShader(lighting_shader_program, default_fragment_shader);
+	glLinkProgram(lighting_shader_program);
+    glUseProgram(lighting_shader_program);
+    if (!gl_check_program_link_log(shader_program)) {
+		MessageBoxA(0, "Something went wrong during shader program linking!", "Fatal Error", 0);
+	}
+
+	glDeleteShader(default_vertex_shader);
+	glDeleteShader(default_fragment_shader);
+	glDeleteShader(lighting_fragment_shader);
 
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
@@ -167,8 +149,6 @@ void on_create()
 
 	glVertexAttribPointer(a_nor, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
 	glEnableVertexAttribArray(a_nor);
-
-    Matrix::identity(model);
 }
 
 void on_close()
@@ -181,6 +161,7 @@ void on_close()
 	glDeleteBuffers(1, &vbo);
 	glDeleteVertexArrays(1, &vao);
     glDeleteProgram(shader_program);
+    glDeleteProgram(lighting_shader_program);
 }
 
 LRESULT handle_message(Win32Window* window, HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -290,6 +271,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	double dt = 0;
 
+	float light_pos[3] = { 0.f, 5.f, 0.f };
+
 	MSG msg = {};
 	while (!game_window->recieved_quit) {
 		LARGE_INTEGER start, freq;
@@ -334,17 +317,20 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			camera_look_at(cur_cam);
 
 			glUseProgram(shader_program);
+
 			float terrain_colour[3] = { 0.0f, 1.0f, 0.0 };
 			glUniform3fv(object_colour_loc, 1, terrain_colour);
+			glUniform3fv(light_pos_loc, 1, light_pos);
 			
 			glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			for (int j = 0; j < 10; j++) {
-				for (int i = 0; i < 10; i++) {
+			for (int j = 0; j < 1; j++) {
+				for (int i = 0; i < 1; i++) {
+					float model[16];
 					Matrix::identity(model);
 					Matrix::translate(model, i * (chunk_width - 1), 0.f, j * (chunk_height -1));
-					Matrix::scale(model, 1.f, 0, 1.f);
+					Matrix::scale(model, 1.f, 1.0f, 1.f);
 
 					glUniformMatrix4fv(model_loc, 1, GL_FALSE, model);
 
@@ -359,11 +345,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				}
 			}
 
-
 			SwapBuffers(wglGetCurrentDC());
 		
-			glUseProgram(0);
-
 			LARGE_INTEGER finish, elapsed;
 			QueryPerformanceCounter(&finish);
 			elapsed.QuadPart = finish.QuadPart - start.QuadPart;
