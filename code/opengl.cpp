@@ -1,8 +1,8 @@
 #include "opengl.h"
 
-static bool gl_check_shader_compile_log(unsigned shader)
+static bool gl_check_shader_compile_log(u32 shader)
 {
-	int success;
+	s32 success;
 	char info_log[512];
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 	if (!success)
@@ -14,9 +14,9 @@ static bool gl_check_shader_compile_log(unsigned shader)
 	return success;
 }
 
-static bool gl_check_program_link_log(unsigned program)
+static bool gl_check_program_link_log(u32 program)
 {
-	int success;
+	s32 success;
 	char info_log[512];
 	glGetProgramiv(program, GL_LINK_STATUS, &success);
 	if (!success)
@@ -42,7 +42,7 @@ gl_message_callback(GLenum source,
             id, message);
 }
 
-static unsigned gl_load_shader_from_file(const char *filename, unsigned program, int type)
+static u32 gl_load_shader_from_file(const char *filename, u32 program, s32 type)
 {
 	FILE* file = NULL;
     fopen_s(&file, filename, "rb");
@@ -51,10 +51,10 @@ static unsigned gl_load_shader_from_file(const char *filename, unsigned program,
         return false;
     }
 
-    int len = _filelength(_fileno(file)) + 1;
+    s32 len = _filelength(_fileno(file)) + 1;
     char* data = (char*)malloc(len);
-    int read = 0;
-    int pos = 0;
+    s32 read = 0;
+    s32 pos = 0;
 
     do {
         read = fread(data + pos, 1, len - pos, file);
@@ -68,7 +68,7 @@ static unsigned gl_load_shader_from_file(const char *filename, unsigned program,
 
     fclose(file);
 
-    unsigned shader = glCreateShader(type);
+    u32 shader = glCreateShader(type);
 	if (!shader) {
         printf("Failed to create shader!\n");
 		return 0;

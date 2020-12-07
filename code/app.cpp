@@ -13,9 +13,9 @@ static void app_generate_terrain_mesh(game_state *state)
 	};
 
 	Vertex vertices[state->chunk_height * state->chunk_width];
-	for (int j = 0; j < state->chunk_height; j++) {
-		for (int i = 0; i < state->chunk_width; i++) {
-			unsigned index = j * state->chunk_width + i;
+	for (u32 j = 0; j < state->chunk_height; j++) {
+		for (u32 i = 0; i < state->chunk_width; i++) {
+			u32 index = j * state->chunk_width + i;
 			vertices[index].pos.x = i;
 			vertices[index].pos.y = (rand() % 1000) / 1000.f;
 			vertices[index].pos.z = j;
@@ -24,15 +24,15 @@ static void app_generate_terrain_mesh(game_state *state)
 	}
 
 	struct QuadIndices {
-		unsigned i[6];
+		u32 i[6];
 	};
 
-	const int row_quads = state->chunk_height - 1;
-	const int col_quads = state->chunk_width - 1;
+	const u32 row_quads = state->chunk_height - 1;
+	const u32 col_quads = state->chunk_width - 1;
 	QuadIndices indices[row_quads * col_quads];
-	for (int j = 0; j < row_quads; j++) {
-		for (int i = 0; i < col_quads; i++) {
-			unsigned pos = j * col_quads + i;
+	for (u32 j = 0; j < row_quads; j++) {
+		for (u32 i = 0; i < col_quads; i++) {
+			u32 pos = j * col_quads + i;
 			indices[pos].i[0] = j * state->chunk_width + i;
 			indices[pos].i[1] = j * state->chunk_width + i + 1;
 			indices[pos].i[2] = (j + 1) * state->chunk_width + i;
@@ -43,10 +43,10 @@ static void app_generate_terrain_mesh(game_state *state)
 		}
 	}
 
-	for (int j = 0; j < row_quads; j++) {
-		for (int i = 0; i < col_quads; i++) {
-			unsigned pos = j * col_quads + i;
-			for (int tri = 0; tri < 2; tri++) {
+	for (u32 j = 0; j < row_quads; j++) {
+		for (u32 i = 0; i < col_quads; i++) {
+			u32 pos = j * col_quads + i;
+			for (u32 tri = 0; tri < 2; tri++) {
 				Vertex *a = &vertices[indices[pos].i[tri * 3 + 0]];
 				Vertex *b = &vertices[indices[pos].i[tri * 3 + 1]];
 				Vertex *c = &vertices[indices[pos].i[tri * 3 + 2]];
@@ -59,9 +59,9 @@ static void app_generate_terrain_mesh(game_state *state)
 		}
 	}
 
-	for (int j = 0; j < state->chunk_height; j++) {
-		for (int i = 0; i < state->chunk_width; i++) {
-			unsigned index = j * state->chunk_width + i;
+	for (u32 j = 0; j < state->chunk_height; j++) {
+		for (u32 i = 0; i < state->chunk_width; i++) {
+			u32 index = j * state->chunk_width + i;
 			vertices[index].nor = normalise(vertices[index].nor);
 		}
 	}
@@ -71,16 +71,16 @@ static void app_generate_terrain_mesh(game_state *state)
 
 	glGenBuffers(1, &state->vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, state->vbo);
-	glBufferData(GL_ARRAY_BUFFER, state->chunk_height * state->chunk_width * 6 * sizeof(float), vertices, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, state->chunk_height * state->chunk_width * 6 * sizeof(real32), vertices, GL_STATIC_DRAW);
 
 	glGenBuffers(1, &state->ebo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, row_quads * col_quads * 6 * sizeof(unsigned), indices, GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, row_quads * col_quads * 6 * sizeof(u32), indices, GL_STATIC_DRAW);
 
-	glVertexAttribPointer(state->a_pos, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	glVertexAttribPointer(state->a_pos, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(real32), (void*)0);
 	glEnableVertexAttribArray(state->a_pos);
 
-	glVertexAttribPointer(state->a_nor, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+	glVertexAttribPointer(state->a_nor, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(real32), (void*)(3 * sizeof(real32)));
 	glEnableVertexAttribArray(state->a_nor);
 
 	glBindVertexArray(0);
@@ -89,7 +89,7 @@ static void app_generate_terrain_mesh(game_state *state)
 	glGenVertexArrays(1, &state->lvao);
 	glBindVertexArray(state->lvao);
 
-	float light_verts[9] = {
+	real32 light_verts[9] = {
 		-0.5f, -0.5f, 0.0,
 		 0.5f, -0.5f, 0.0,
 		 0.0f,  0.5f, 0.0
@@ -97,16 +97,16 @@ static void app_generate_terrain_mesh(game_state *state)
 
 	glGenBuffers(1, &state->lvbo);
 	glBindBuffer(GL_ARRAY_BUFFER, state->lvbo);
-	glBufferData(GL_ARRAY_BUFFER, 9 * sizeof(float), light_verts, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, 9 * sizeof(real32), light_verts, GL_STATIC_DRAW);
 
-	glVertexAttribPointer(state->a_lpos, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glVertexAttribPointer(state->a_lpos, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(real32), (void*)0);
 	glEnableVertexAttribArray(state->a_lpos);
 }
 
 void app_init_shaders(game_state *state)
 {
-    unsigned default_vertex_shader;
-	unsigned default_fragment_shader;
+    u32 default_vertex_shader;
+	u32 default_fragment_shader;
 
 	state->program = glCreateProgram();
 	default_vertex_shader = gl_load_shader_from_file("default_vertex_shader.gl", state->program, GL_VERTEX_SHADER);
@@ -129,8 +129,8 @@ void app_init_shaders(game_state *state)
 	state->light_pos_loc = glGetUniformLocation(state->program, "light_pos");
 
 	state->lighting_program = glCreateProgram();
-	unsigned light_vertex_shader = gl_load_shader_from_file("light_vertex_shader.gl", state->lighting_program, GL_VERTEX_SHADER);
-	unsigned light_fragment_shader = gl_load_shader_from_file("light_fragment_shader.gl", state->lighting_program, GL_FRAGMENT_SHADER);
+	u32 light_vertex_shader = gl_load_shader_from_file("light_vertex_shader.gl", state->lighting_program, GL_VERTEX_SHADER);
+	u32 light_fragment_shader = gl_load_shader_from_file("light_fragment_shader.gl", state->lighting_program, GL_FRAGMENT_SHADER);
 	glAttachShader(state->lighting_program, light_vertex_shader);
 	glAttachShader(state->lighting_program, light_fragment_shader);
 	glLinkProgram(state->lighting_program);
@@ -184,21 +184,21 @@ static void render_terrain(game_state *state)
 	glUseProgram(state->program);
 	glBindVertexArray(state->vao);
 
-    float terrain_colour[3] = { 0.1f, 1.0f, 0.1f };
+    real32 terrain_colour[3] = { 0.1f, 1.0f, 0.1f };
 
     glUniform3fv(state->object_colour_loc, 1, terrain_colour);
     glUniform3fv(state->light_pos_loc, 1, (GLfloat*)(&light_pos));
 
-    for (int j = 0; j < 5; j++) {
-        for (int i = 0; i < 5; i++) {
-            float model[16];
+    for (u32 j = 0; j < 5; j++) {
+        for (u32 i = 0; i < 5; i++) {
+            real32 model[16];
             identity(model);
             translate(model, i * (state->chunk_width - 1), 0.f, j * (state->chunk_height -1));
             scale(model, 1.f, 1.f, 1.f);
 
             glUniformMatrix4fv(state->model_loc, 1, GL_FALSE, model);
 
-            float mv[16], mvp[16];
+            real32 mv[16], mvp[16];
             identity(mv);
             identity(mvp);
             multiply(mv, state->cur_cam.view, model);
@@ -215,12 +215,12 @@ static void render_terrain(game_state *state)
 
 	glBindVertexArray(state->lvao);
 
-	float model[16];
+	real32 model[16];
 	identity(model);
 	translate(model, light_pos.x, light_pos.y, light_pos.z);
 	scale(model, 10.f, 10.f, 10.f);
 
-	float mv[16], mvp[16];
+	real32 mv[16], mvp[16];
 	identity(mv);
 	identity(mvp);
 	multiply(mv, state->cur_cam.view, model);
@@ -229,7 +229,7 @@ static void render_terrain(game_state *state)
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
-static void app_update_and_render(float dt, game_input *input, game_memory *memory, game_window_info *window_info)
+static void app_update_and_render(real32 dt, game_input *input, game_memory *memory, game_window_info *window_info)
 {
 	game_state *state = (game_state*)memory->permenant_storage;
 	if (!memory->is_initialized) {
@@ -246,7 +246,7 @@ static void app_update_and_render(float dt, game_input *input, game_memory *memo
 		camera_frustrum(&state->cur_cam, window_info->w, window_info->h);
 	}
 
-	float cam_look_speed = 100.f;
+	real32 cam_look_speed = 100.f;
 
     game_keyboard_input *keyboard = &input->keyboard;
     if (keyboard->forward.ended_down) {

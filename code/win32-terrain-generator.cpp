@@ -75,12 +75,12 @@ static void win32_gl_load_extensions()
     #undef WGLF
 }
 
-static bool win32_wgl_is_supported(const char *str)
+static bool32 win32_wgl_is_supported(const char *str)
 {
     char *wext_str = _strdup(wglGetExtensionsStringARB(wglGetCurrentDC()));
     char *next = NULL;
     char *wext = strtok_s(wext_str, " ", &next);
-    bool found = false;
+    bool32 found = false;
     
     while (wext != NULL && !found) {
         wext = strtok_s(NULL, " ", &next);
@@ -122,7 +122,7 @@ static void win32_init_opengl_extensions()
 	pfd.cDepthBits = 24;
 	pfd.iLayerType = PFD_MAIN_PLANE;
 
-	int pixelFormatNumber = ChoosePixelFormat(dummy_dc, &pfd);
+	s32 pixelFormatNumber = ChoosePixelFormat(dummy_dc, &pfd);
 	SetPixelFormat(dummy_dc, pixelFormatNumber, &pfd);
 
 	HGLRC dummy_context = wglCreateContext(dummy_dc);
@@ -143,7 +143,7 @@ static void win32_init_opengl_extensions()
 
 static HGLRC win32_create_gl_context(HWND hwnd)
 {
-	int pixel_format_attribs[] =
+	INT pixel_format_attribs[] =
 	{
 		WGL_DRAW_TO_WINDOW_ARB, GL_TRUE,
 		WGL_SUPPORT_OPENGL_ARB, GL_TRUE,
@@ -156,7 +156,7 @@ static HGLRC win32_create_gl_context(HWND hwnd)
 	};
 
 	HDC dc = GetDC(hwnd);
-	int pixel_format;
+	INT pixel_format;
 	UINT num_formats;
 	wglChoosePixelFormatARB(dc, pixel_format_attribs, 0, 1, &pixel_format, &num_formats);
 	if (!num_formats) {
@@ -169,7 +169,7 @@ static HGLRC win32_create_gl_context(HWND hwnd)
 		MessageBoxA(0, "Failed to set a pixel format", "Fatal Error", 0);
 	}
 
-	int attribs[] = {
+	INT attribs[] = {
 		WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
 		WGL_CONTEXT_MINOR_VERSION_ARB, 3,
 		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
@@ -218,7 +218,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	return TRUE;
 }
 
-int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
+INT CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, s32 nShowCmd)
 {
     WNDCLASSEXA window_class = {};
 	window_class.cbSize = sizeof(WNDCLASSEX);
@@ -250,7 +250,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	memory.permenant_storage = VirtualAlloc(0, memory.permenant_storage_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	
 	if (memory.permenant_storage) {
-		double dt = 0;
+		real64 dt = 0;
 		running = true;
 
 		while (running) {

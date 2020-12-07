@@ -12,17 +12,17 @@ static void camera_init(Camera *cam)
 	cam->vel = 40.f;
 }
 
-static void camera_frustrum(Camera *cam, unsigned cx, unsigned cy)
+static void camera_frustrum(Camera *cam, u32 cx, u32 cy)
 {
 	assert(cam && cx > 0 && cy > 0);
-	float near_clip = 0.01f;
-	float far_clip = 1000.f;
-	float fov_y = (90.f * (float)M_PI / 180.f);
-	float aspect = (float)cx / cy;
-	float top = near_clip * tanf(fov_y / 2);
-	float bottom = -1 * top;
-	float left = bottom * aspect;
-	float right = top * aspect;
+	real32 near_clip = 0.01f;
+	real32 far_clip = 1000.f;
+	real32 fov_y = (90.f * (real32)M_PI / 180.f);
+	real32 aspect = (real32)cx / cy;
+	real32 top = near_clip * tanf(fov_y / 2);
+	real32 bottom = -1 * top;
+	real32 left = bottom * aspect;
+	real32 right = top * aspect;
 	frustrum(cam->frustrum, left, right, bottom, top, near_clip, far_clip);
 }
 
@@ -41,22 +41,22 @@ static void camera_update(Camera *cam)
 	cam->front = normalise(direction);
 }
 
-static inline void camera_move_forward(Camera *cam, float dt)
+static inline void camera_move_forward(Camera *cam, real32 dt)
 {
 	cam->pos += cam->vel * dt * cam->front;
 }
 
-static inline void camera_move_backward(Camera *cam, float dt)
+static inline void camera_move_backward(Camera *cam, real32 dt)
 {
 	cam->pos -= cam->vel * dt * cam->front;
 }
 
-static inline void camera_move_left(Camera *cam, float dt)
+static inline void camera_move_left(Camera *cam, real32 dt)
 {
 	cam->pos -= normalise(cross(cam->front, cam->up)) * cam->vel * dt;
 }
 
-static inline void camera_move_right(Camera *cam, float dt)
+static inline void camera_move_right(Camera *cam, real32 dt)
 {
 	cam->pos += normalise(cross(cam->front, cam->up)) * cam->vel * dt;
 }

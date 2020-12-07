@@ -4,7 +4,7 @@ struct V3 {
 	union {
 		real32 E[3];
 		struct {
-    		float x, y, z;
+    		real32 x, y, z;
 		};
 	};
 };
