@@ -31,14 +31,6 @@ GLF(Uniform3fv, UNIFORM3FV);\
 GLF(DebugMessageCallback, DEBUGMESSAGECALLBACK);
 GL_FUNCS
 #undef GLF
-#define WGLF(name, uppername) static PFNWGL##uppername##PROC wgl##name
-#define WGL_FUNCS \
-WGLF(GetExtensionsStringARB, GETEXTENSIONSSTRINGARB);\
-WGLF(ChoosePixelFormatARB, CHOOSEPIXELFORMATARB);\
-WGLF(CreateContextAttribsARB, CREATECONTEXTATTRIBSARB);\
-WGLF(SwapIntervalEXT, SWAPINTERVALEXT);
-WGL_FUNCS
-#undef WGLF
 
 static bool gl_check_shader_compile_log(unsigned shader)
 {

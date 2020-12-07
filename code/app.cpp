@@ -1,10 +1,8 @@
 #include "app.h"
 
 struct Mesh {
-    float *vertices;
-    float *indices;
-
-    u32 chunk_size;
+    real32 *vertices;
+    real32 *indices;
 };
 
 static void app_generate_terrain_mesh(game_state *state)
@@ -84,6 +82,25 @@ static void app_generate_terrain_mesh(game_state *state)
 
 	glVertexAttribPointer(state->a_nor, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
 	glEnableVertexAttribArray(state->a_nor);
+
+	glBindVertexArray(0);
+
+	// temp light vao.
+	glGenVertexArrays(1, &state->lvao);
+	glBindVertexArray(state->lvao);
+
+	float light_verts[9] = {
+		-0.5f, -0.5f, 0.0,
+		 0.5f, -0.5f, 0.0,
+		 0.0f,  0.5f, 0.0
+	};
+
+	glGenBuffers(1, &state->lvbo);
+	glBindBuffer(GL_ARRAY_BUFFER, state->lvbo);
+	glBufferData(GL_ARRAY_BUFFER, 9 * sizeof(float), light_verts, GL_STATIC_DRAW);
+
+	glVertexAttribPointer(state->a_lpos, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(state->a_lpos);
 }
 
 void app_init_shaders(game_state *state)
@@ -92,9 +109,9 @@ void app_init_shaders(game_state *state)
 	unsigned default_fragment_shader;
 
 	state->program = glCreateProgram();
-	state->lighting_program = glCreateProgram();
 	default_vertex_shader = gl_load_shader_from_file("default_vertex_shader.gl", state->program, GL_VERTEX_SHADER);
 	default_fragment_shader = gl_load_shader_from_file("default_fragment_shader.gl", state->program, GL_FRAGMENT_SHADER);
+
 	glAttachShader(state->program, default_vertex_shader);
 	glAttachShader(state->program, default_fragment_shader);
 	glLinkProgram(state->program);
@@ -105,22 +122,28 @@ void app_init_shaders(game_state *state)
 
 	state->a_pos = glGetAttribLocation(state->program, "a_pos");
 	state->a_nor = glGetAttribLocation(state->program, "a_nor");
-	unsigned a_lighting_pos = glGetAttribLocation(state->lighting_program, "a_pos");
 
 	state->transform_loc = glGetUniformLocation(state->program, "transform");
 	state->object_colour_loc = glGetUniformLocation(state->program, "object_colour");
 	state->model_loc = glGetUniformLocation(state->program, "model");
 	state->light_pos_loc = glGetUniformLocation(state->program, "light_pos");
 
-	glAttachShader(state->lighting_program, default_vertex_shader);
-	glAttachShader(state->lighting_program, default_fragment_shader);
+	state->lighting_program = glCreateProgram();
+	unsigned light_vertex_shader = gl_load_shader_from_file("light_vertex_shader.gl", state->lighting_program, GL_VERTEX_SHADER);
+	unsigned light_fragment_shader = gl_load_shader_from_file("light_fragment_shader.gl", state->lighting_program, GL_FRAGMENT_SHADER);
+	glAttachShader(state->lighting_program, light_vertex_shader);
+	glAttachShader(state->lighting_program, light_fragment_shader);
 	glLinkProgram(state->lighting_program);
     glUseProgram(state->lighting_program);
     if (!gl_check_program_link_log(state->lighting_program)) {
 		// Error
 	}
 
+	state->a_lpos = glGetAttribLocation(state->lighting_program, "a_pos");
+
 	glDeleteShader(default_vertex_shader);
+	glDeleteShader(light_vertex_shader);
+	glDeleteShader(light_fragment_shader);
 	glDeleteShader(default_fragment_shader);
 }
 
@@ -131,6 +154,10 @@ static void app_on_destroy(game_state *state)
 	glDeleteBuffers(1, &state->ebo);
 	glDeleteBuffers(1, &state->vbo);
 	glDeleteVertexArrays(1, &state->vao);
+
+	glDeleteBuffers(1, &state->lvbo);
+	glDeleteVertexArrays(1, &state->lvao);
+
     glDeleteProgram(state->program);
     glDeleteProgram(state->lighting_program);
 }
@@ -138,22 +165,36 @@ static void app_on_destroy(game_state *state)
 
 static void render_terrain(game_state *state)
 {
-    glUseProgram(state->program);
-
-    float light_pos[3] = { 0.0f, 5.0f, 0.0f };
-    float terrain_colour[3] = { 0.0f, 1.0f, 0.0 };
-    glUniform3fv(state->object_colour_loc, 1, terrain_colour);
-    glUniform3fv(state->light_pos_loc, 1, light_pos);
+	//temp
+	static real32 i = 0;
+	static real32 dir = 1;
     
+	if (i > 100.f || i < 0.f) {
+		dir *= -1;
+	}
+
+	i += 1.f * dir;
+	//
+
+    V3 light_pos = { i, 10.0f, 0.0f };
+
     glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    for (int j = 0; j < 1; j++) {
-        for (int i = 0; i < 1; i++) {
+	glUseProgram(state->program);
+	glBindVertexArray(state->vao);
+
+    float terrain_colour[3] = { 0.1f, 1.0f, 0.1f };
+
+    glUniform3fv(state->object_colour_loc, 1, terrain_colour);
+    glUniform3fv(state->light_pos_loc, 1, (GLfloat*)(&light_pos));
+
+    for (int j = 0; j < 5; j++) {
+        for (int i = 0; i < 5; i++) {
             float model[16];
             Matrix::identity(model);
             Matrix::translate(model, i * (state->chunk_width - 1), 0.f, j * (state->chunk_height -1));
-            Matrix::scale(model, 1.f, 1.0f, 1.f);
+            Matrix::scale(model, 1.f, 1.f, 1.f);
 
             glUniformMatrix4fv(state->model_loc, 1, GL_FALSE, model);
 
@@ -167,6 +208,25 @@ static void render_terrain(game_state *state)
             glDrawElements(GL_TRIANGLES, (state->chunk_width - 1) * (state->chunk_height - 1) * 6, GL_UNSIGNED_INT, NULL);
         }
     }
+
+
+	// Temp drawing light.
+    glUseProgram(state->lighting_program);
+
+	glBindVertexArray(state->lvao);
+
+	float model[16];
+	Matrix::identity(model);
+	Matrix::translate(model, light_pos.x, light_pos.y, light_pos.z);
+	Matrix::scale(model, 10.f, 10.f, 10.f);
+
+	float mv[16], mvp[16];
+	Matrix::identity(mv);
+	Matrix::identity(mvp);
+	Matrix::multiply(mv, state->cur_cam.view, model);
+	Matrix::multiply(mvp, state->cur_cam.frustrum, mv);
+	glUniformMatrix4fv(glGetUniformLocation(state->lighting_program, "transform"), 1, GL_FALSE, mvp);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
 static void app_update_and_render(float dt, game_input *input, game_memory *memory, game_window_info *window_info)

@@ -1,37 +1,37 @@
 #include "maths.h"
 
-V3& V3::operator+=(V3 &v)
+static V3& operator+=(V3 &v, V3 &w)
 {
-    this->x += v.x;
-    this->y += v.y;
-    this->z += v.z;
-    return *this;
+    v.x += w.x;
+    v.y += w.y;
+    v.z += w.z;
+    return v;
 }
 
-V3& V3::operator-=(V3 &v)
+static V3& operator-=(V3 &v, V3 &w)
 {
-    this->x -= v.x;
-    this->y -= v.y;
-    this->z -= v.z;
-    return *this;
+    v.x -= w.x;
+    v.y -= w.y;
+    v.z -= w.z;
+    return v;
 }
 
-V3 V3::operator+(V3 &v)
+static V3 operator+(const V3 &v, const V3 &w)
 {
-    return {
-        x + v.x,
-        y + v.y,
-        z + v.z
-    };
+	return {
+		v.x + w.x,
+		v.y + w.y,
+		v.z + w.z
+	};
 }
 
-V3 V3::operator-(V3 &v)
+static V3 operator-(const V3 &v, const V3 &w)
 {
-    return {
-        x - v.x,
-        y - v.y,
-        z - v.z
-    };
+	return {
+		v.x - w.x,
+		v.y - w.y,
+		v.z - w.z
+	};
 }
 
 static V3 operator*(const V3 &v, const float s)

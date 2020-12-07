@@ -45,6 +45,8 @@ struct game_state {
     unsigned vao, vbo, ebo;
     unsigned a_pos, a_nor;
     unsigned program, lighting_program;
+    unsigned lvao, lvbo;
+    unsigned a_lpos;
     unsigned transform_loc;
     unsigned object_colour_loc;
     unsigned model_loc;

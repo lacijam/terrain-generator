@@ -40,6 +40,16 @@ static bool window_resized;
 static bool running;
 static HGLRC glrc;
 
+// wgl extensions.
+#define WGLF(name, uppername) static PFNWGL##uppername##PROC wgl##name
+#define WGL_FUNCS \
+WGLF(GetExtensionsStringARB, GETEXTENSIONSSTRINGARB);\
+WGLF(ChoosePixelFormatARB, CHOOSEPIXELFORMATARB);\
+WGLF(CreateContextAttribsARB, CREATECONTEXTATTRIBSARB);\
+WGLF(SwapIntervalEXT, SWAPINTERVALEXT);
+WGL_FUNCS
+#undef WGLF
+
 static void *win32_get_any_gl_proc(const char *name)
 {
     void *p = (void *)wglGetProcAddress(name);

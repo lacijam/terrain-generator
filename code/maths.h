@@ -1,15 +1,20 @@
 #pragma once
 
 struct V3 {
-    float x, y, z;
-    V3& operator+=(V3 &v);
-    V3& operator-=(V3 &v);
-    V3 operator+(V3 &v);
-    V3 operator-(V3 &v);
+	union {
+		real32 E[3];
+		struct {
+    		float x, y, z;
+		};
+	};
 };
 
-static V3 operator*(const V3 &v, const float s);
-static V3 operator*(const float s, const V3 &v);
+static V3 operator*(const V3 &v, const real32 s);
+static V3 operator*(const real32 s, const V3 &v);
+static V3& operator+=(V3 &v, V3 &w);
+static V3& operator-=(V3 &v, V3 &w);
+static V3 operator+(const V3 &v, const V3 &w);
+static V3 operator-(const V3 &v, const V3 &w);
 
 namespace Matrix {
 	static void update_mvp(float *view, float *frustrum, float *mvp);
