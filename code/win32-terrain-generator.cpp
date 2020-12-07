@@ -14,6 +14,8 @@ typedef int32_t bool32;
 typedef float real32;
 typedef double real64;
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <io.h>
 #include <assert.h>
@@ -21,13 +23,10 @@ typedef double real64;
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include "maths.cpp"
-
 #include "camera.cpp"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 #include <gl/GL.h>
 #include "gl/glext.h"
@@ -35,6 +34,7 @@ typedef double real64;
 
 #include "opengl.cpp"
 #include "app.cpp"
+
 
 static bool window_resized;
 static bool running;

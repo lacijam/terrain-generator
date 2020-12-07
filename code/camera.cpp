@@ -5,8 +5,8 @@ static void camera_init(Camera *cam)
 	cam->pos = { 0.f, 0.f, 0.f };
 	cam->front = { 0.f, 0.f, -1.f };
 	cam->up = { 0.f, 1.f, 0.f };
-	Matrix::identity(cam->view);
-	Matrix::identity(cam->frustrum);
+	identity(cam->view);
+	identity(cam->frustrum);
 	cam->yaw = 0;
 	cam->pitch = 0;
 	cam->vel = 40.f;
@@ -23,7 +23,7 @@ static void camera_frustrum(Camera *cam, unsigned cx, unsigned cy)
 	float bottom = -1 * top;
 	float left = bottom * aspect;
 	float right = top * aspect;
-	Matrix::frustrum(cam->frustrum, left, right, bottom, top, near_clip, far_clip);
+	frustrum(cam->frustrum, left, right, bottom, top, near_clip, far_clip);
 }
 
 static void camera_update(Camera *cam)
@@ -35,8 +35,33 @@ static void camera_update(Camera *cam)
 	}
 
 	V3 direction;
-	direction.x = cosf(Matrix::radians(cam->yaw)) * cosf(Matrix::radians(cam->pitch));
-	direction.y = sinf(Matrix::radians(cam->pitch));
-	direction.z = sinf(Matrix::radians(cam->yaw)) * cosf(Matrix::radians(cam->pitch));
-	cam->front = Matrix::normalise(direction);
+	direction.x = cosf(radians(cam->yaw)) * cosf(radians(cam->pitch));
+	direction.y = sinf(radians(cam->pitch));
+	direction.z = sinf(radians(cam->yaw)) * cosf(radians(cam->pitch));
+	cam->front = normalise(direction);
+}
+
+static inline void camera_move_forward(Camera *cam, float dt)
+{
+	cam->pos += cam->vel * dt * cam->front;
+}
+
+static inline void camera_move_backward(Camera *cam, float dt)
+{
+	cam->pos -= cam->vel * dt * cam->front;
+}
+
+static inline void camera_move_left(Camera *cam, float dt)
+{
+	cam->pos -= normalise(cross(cam->front, cam->up)) * cam->vel * dt;
+}
+
+static inline void camera_move_right(Camera *cam, float dt)
+{
+	cam->pos += normalise(cross(cam->front, cam->up)) * cam->vel * dt;
+}
+
+static inline void camera_look_at(Camera *cam)
+{
+	look_at(cam->view, cam->pos, cam->pos + cam->front, cam->up);
 }

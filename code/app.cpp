@@ -50,7 +50,7 @@ static void app_generate_terrain_mesh(game_state *state)
 				Vertex *a = &vertices[indices[pos].i[tri * 3 + 0]];
 				Vertex *b = &vertices[indices[pos].i[tri * 3 + 1]];
 				Vertex *c = &vertices[indices[pos].i[tri * 3 + 2]];
-				V3 cp = Matrix::cross(b->pos - a->pos, c->pos - a->pos);
+				V3 cp = cross(b->pos - a->pos, c->pos - a->pos);
 				cp = cp * -1.f;
 				a->nor += cp;
 				b->nor += cp;
@@ -62,7 +62,7 @@ static void app_generate_terrain_mesh(game_state *state)
 	for (int j = 0; j < state->chunk_height; j++) {
 		for (int i = 0; i < state->chunk_width; i++) {
 			unsigned index = j * state->chunk_width + i;
-			vertices[index].nor = Matrix::normalise(vertices[index].nor);
+			vertices[index].nor = normalise(vertices[index].nor);
 		}
 	}
 
@@ -192,17 +192,17 @@ static void render_terrain(game_state *state)
     for (int j = 0; j < 5; j++) {
         for (int i = 0; i < 5; i++) {
             float model[16];
-            Matrix::identity(model);
-            Matrix::translate(model, i * (state->chunk_width - 1), 0.f, j * (state->chunk_height -1));
-            Matrix::scale(model, 1.f, 1.f, 1.f);
+            identity(model);
+            translate(model, i * (state->chunk_width - 1), 0.f, j * (state->chunk_height -1));
+            scale(model, 1.f, 1.f, 1.f);
 
             glUniformMatrix4fv(state->model_loc, 1, GL_FALSE, model);
 
             float mv[16], mvp[16];
-            Matrix::identity(mv);
-            Matrix::identity(mvp);
-            Matrix::multiply(mv, state->cur_cam.view, model);
-            Matrix::multiply(mvp, state->cur_cam.frustrum, mv);
+            identity(mv);
+            identity(mvp);
+            multiply(mv, state->cur_cam.view, model);
+            multiply(mvp, state->cur_cam.frustrum, mv);
             glUniformMatrix4fv(state->transform_loc, 1, GL_FALSE, mvp);
 
             glDrawElements(GL_TRIANGLES, (state->chunk_width - 1) * (state->chunk_height - 1) * 6, GL_UNSIGNED_INT, NULL);
@@ -216,15 +216,15 @@ static void render_terrain(game_state *state)
 	glBindVertexArray(state->lvao);
 
 	float model[16];
-	Matrix::identity(model);
-	Matrix::translate(model, light_pos.x, light_pos.y, light_pos.z);
-	Matrix::scale(model, 10.f, 10.f, 10.f);
+	identity(model);
+	translate(model, light_pos.x, light_pos.y, light_pos.z);
+	scale(model, 10.f, 10.f, 10.f);
 
 	float mv[16], mvp[16];
-	Matrix::identity(mv);
-	Matrix::identity(mvp);
-	Matrix::multiply(mv, state->cur_cam.view, model);
-	Matrix::multiply(mvp, state->cur_cam.frustrum, mv);
+	identity(mv);
+	identity(mvp);
+	multiply(mv, state->cur_cam.view, model);
+	multiply(mvp, state->cur_cam.frustrum, mv);
 	glUniformMatrix4fv(glGetUniformLocation(state->lighting_program, "transform"), 1, GL_FALSE, mvp);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 }
