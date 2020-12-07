@@ -286,7 +286,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 		if (game_window->has_focus) {
 			if (game_window->has_capture) {
-				POINT p;
+				POINT p; 
 				GetCursorPos(&p);
 				ScreenToClient(game_window->hwnd, &p);
 

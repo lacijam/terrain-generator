@@ -1,12 +1,4 @@
-#include <Windows.h>
-#include "opengl.h"
-
-#include <ctype.h>
-#include <string.h>
-#include <stdio.h>
-#include <io.h>
-
-#define GLF(name, uppername) PFNGL##uppername##PROC gl##name
+#define GLF(name, uppername) static PFNGL##uppername##PROC gl##name
 #define GL_FUNCS \
 GLF(GetStringi, GETSTRINGI);\
 GLF(CreateProgram, CREATEPROGRAM);\
@@ -39,7 +31,7 @@ GLF(Uniform3fv, UNIFORM3FV);\
 GLF(DebugMessageCallback, DEBUGMESSAGECALLBACK);
 GL_FUNCS
 #undef GLF
-#define WGLF(name, uppername) PFNWGL##uppername##PROC wgl##name
+#define WGLF(name, uppername) static PFNWGL##uppername##PROC wgl##name
 #define WGL_FUNCS \
 WGLF(GetExtensionsStringARB, GETEXTENSIONSSTRINGARB);\
 WGLF(ChoosePixelFormatARB, CHOOSEPIXELFORMATARB);\
@@ -48,51 +40,7 @@ WGLF(SwapIntervalEXT, SWAPINTERVALEXT);
 WGL_FUNCS
 #undef WGLF
 
-static void *GetAnyGLFuncAddress(const char *name)
-{
-    void *p = (void *)wglGetProcAddress(name);
-    if (p == 0 ||
-        (p == (void *)0x1) || (p == (void *)0x2) || (p == (void *)0x3) ||
-        (p == (void *)-1) )
-    {
-        HMODULE module = LoadLibraryA("opengl32.dll");
-        p = (void *)GetProcAddress(module, name);
-    }
-
-    return p;
-}
-
-void gl_load_extensions()
-{
-    #define GLF(name, uppername) gl##name = (PFNGL##uppername##PROC)GetAnyGLFuncAddress("gl"#name"")
-    GL_FUNCS
-    #undef GLF
-
-    #define WGLF(name, uppername) wgl##name = (PFNWGL##uppername##PROC)GetAnyGLFuncAddress("wgl"#name"")
-    WGL_FUNCS
-    #undef WGLF
-}
-
-bool wgl_is_supported(const char *str)
-{
-    char *wext_str = _strdup(wglGetExtensionsStringARB(wglGetCurrentDC()));
-    char *next = NULL;
-    char *wext = strtok_s(wext_str, " ", &next);
-    bool found = false;
-    
-    while (wext != NULL && !found) {
-        wext = strtok_s(NULL, " ", &next);
-        if (strcmp(wext, str)) {
-            found = true;
-        }
-    }
-
-    free(wext_str);
-
-    return found;
-}
-
-bool gl_check_shader_compile_log(unsigned shader)
+static bool gl_check_shader_compile_log(unsigned shader)
 {
 	int success;
 	char info_log[512];
@@ -106,7 +54,7 @@ bool gl_check_shader_compile_log(unsigned shader)
 	return success;
 }
 
-bool gl_check_program_link_log(unsigned program)
+static bool gl_check_program_link_log(unsigned program)
 {
 	int success;
 	char info_log[512];
@@ -120,24 +68,7 @@ bool gl_check_program_link_log(unsigned program)
 	return success;
 }
 
-// bool gl_compile_shader(unsigned program_id, const char* src, GLenum shader_type)
-// {
-//     unsigned shader = glCreateShader(shader_type);
-// 	if (!shader) {
-// 		return false;
-// 	}
-	
-//     glShaderSource(shader, 1, &src, 0);
-//     glCompileShader(shader);
-//     glAttachShader(program_id, shader);
-//     if (!gl_check_shader_compile_log(shader)) {
-//         return false;
-//     }
-
-//     return true;
-// }
-
-void APIENTRY  
+static void APIENTRY  
 gl_message_callback(GLenum source,
                  GLenum type,
                  GLuint id,
@@ -151,7 +82,7 @@ gl_message_callback(GLenum source,
             id, message);
 }
 
-unsigned gl_load_shader_from_file(const char *filename, unsigned program, int type)
+static unsigned gl_load_shader_from_file(const char *filename, unsigned program, int type)
 {
 	FILE* file = NULL;
     fopen_s(&file, filename, "rb");
