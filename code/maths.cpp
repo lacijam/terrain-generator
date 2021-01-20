@@ -127,6 +127,13 @@ V3 v3_cross(V3 a, V3 b)
 	};
 }
 
+void mat4_copy(real32* dest, real32* src)
+{
+	for (u32 i = 0; i < 16; i++) {
+		dest[i] = src[i];
+	}
+}
+
 void mat4_multiply(real32* result, const real32* lhs, const real32* rhs)
 {
 	for (u32 i = 0; i < 4; ++i) {
@@ -147,6 +154,13 @@ void mat4_translate(real32* matrix, const real32 tx, const real32 ty, const real
 	matrix[12] += (matrix[0] * tx) + (matrix[4] * ty) + (matrix[8]  * tz);
 	matrix[13] += (matrix[1] * tx) + (matrix[5] * ty) + (matrix[9]  * tz);
 	matrix[14] += (matrix[2] * tx) + (matrix[6] * ty) + (matrix[10] * tz);
+}
+
+void mat4_remove_translation(real32* matrix)
+{
+	matrix[12] = 0.f;
+	matrix[13] = 0.f;
+	matrix[14] = 0.f;
 }
 
 void mat4_scale(real32* matrix, const real32 sx, const real32 sy, const real32 sz)

@@ -1,48 +1,86 @@
 #include "perlin.h"
 
+static u8 P[512];
+
+// temporarily use rand()!!!
+#include <time.h>
+#include <stdlib.h>
+#include <windows.h>
+
+void init_rng()
+{
+    srand(time(NULL)); //sorry
+    for (u32 i = 0; i < 256; i++) {
+        P[i] = i;
+    }
+
+    for (u32 i = 0; i < 256; i++) {
+        const u8 index = rand() % 256;
+        const u8 temp = P[index];
+        P[i] = P[index];
+        P[index] = temp;
+    }
+
+    for (u32 i = 256; i < 512; i++) {
+        P[i] = P[i - 256];
+    }
+}
+
 // 6t5-15t4+10t3
 static real32 fade(real32 t)
 {
-    return t * t * t * (t * (t * 6.f - 15.f) + 10.f);
-    // return t * t * (3 - 2 * t);
+    return ((6 * t - 15) * t + 10) * t * t * t;
 }
 
-static real32 rand_noise(V2 p) 
+static V2 get_vector(u32 i)
 {
-    real32 v = sinf(v2_dot(p, {12.9898f, 78.233f})) * 43758.5453f;
-    return v - (u32)v;
+    switch (i & 3) {
+        case 0: return { 1.f, 1.f };
+        case 1: return { -1.f, 1.f };
+        case 2: return { -1.f, -1.f };
+        case 3: return { 1.f, -1.f };
+    }
+
+    return {0};
 }
 
-static V2 grad(V2 p)
+real32 lerp(real32 t, real32 a, real32 b)
 {
-    real32 a = rand_noise(p) * 2.f * M_PI;
-    return { cosf(a), sinf(a) };
+    return a + t * (b - a);
 }
 
 real32 perlin(V2 p)
 {
-    V2 p0, p1, p2, p3;
+    const real32 x = p.x;
+    const real32 y = p.y;
 
-    p0.x = (u32)p.x;
-    p0.y = (u32)p.y;
+    const u32 X = (u32)floor(p.x) & 255;
+	const u32 Y = (u32)floor(p.y) & 255;
 
-    p1 = {p0.x + 1, p0.y};
-    p2 = {p0.x, p0.y + 1};
-    p3 = {p0.x + 1, p0.y + 1};
+	const real32 xf = x - floor(x);
+	const real32 yf = y - floor(y);
 
-    V2 g0 = grad(p0);
-    V2 g1 = grad(p1);
-    V2 g2 = grad(p2);
-    V2 g3 = grad(p3);
-
-    real32 t0 = p.x - p0.x;
-    real32 fade_t0 = fade(t0);
-    real32 t1 = p.y - p0.y;
-    real32 fade_t1 = fade(t1);
-
-    real32 p0p1 = (1.f - fade_t0) * v2_dot(g0, (p - p0)) + fade_t0 * v2_dot(g1, (p - p1));
-    real32 p2p3 = (1.f - fade_t0) * v2_dot(g2, (p - p2)) + fade_t0 * v2_dot(g3, (p - p3));
-
-    real32 value = ((1.f - fade_t1) * p0p1 + fade_t1 * p2p3);
-    return value;
+	const V2 topRight = { xf - 1.f, yf - 1.f };
+	const V2 topLeft = { xf, yf - 1.f };
+	const V2 bottomRight = { xf - 1.f, yf };
+	const V2 bottomLeft = { xf, yf };
+	
+	//Select a value in the array for each of the 4 corners
+	const real32 valueTopRight = P[P[X+1]+Y+1];
+	const real32 valueTopLeft = P[P[X]+Y+1];
+	const real32 valueBottomRight = P[P[X+1]+Y];
+	const real32 valueBottomLeft = P[P[X]+Y];
+	
+	const real32 dotTopRight = v2_dot(topRight, get_vector(valueTopRight));
+	const real32 dotTopLeft = v2_dot(topLeft, get_vector(valueTopLeft));
+	const real32 dotBottomRight = v2_dot(bottomRight, get_vector(valueBottomRight));
+	const real32 dotBottomLeft = v2_dot(bottomLeft, get_vector(valueBottomLeft));
+	
+	const real32 u = fade(xf);
+	const real32 v = fade(yf);
+	
+	return lerp(u,
+		lerp(v, dotBottomLeft, dotTopLeft),
+		lerp(v, dotBottomRight, dotTopRight)
+	);
 }

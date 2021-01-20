@@ -2,12 +2,21 @@
 #include "opengl-util.h"
 #include "app.h"
 
+#include "imgui-master\imgui.h"
+#include "imgui-master\imgui_impl_win32.h"
+#include "imgui-master\imgui_impl_opengl3.h"
+#include "imgui-master\imgui_internal.h"
+
 static bool window_resized;
 static bool running;
 static HGLRC glrc;
 
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	if (ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam))
+    	return true;
+
 	switch (uMsg)
 	{
 	case WM_CLOSE:
@@ -32,6 +41,9 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
+	AllocConsole();
+	freopen("CONOUT$", "w", stdout);
+
     WNDCLASSEXA window_class = {};
 	window_class.cbSize = sizeof(WNDCLASSEX);
 	window_class.lpfnWndProc = window_proc;
@@ -55,7 +67,23 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	win32_init_opengl_extensions();
 	glrc = win32_create_gl_context(hwnd);
 
-    ShowWindow(hwnd, nShowCmd);
+	ShowWindow(hwnd, nShowCmd);
+	UpdateWindow(hwnd);
+
+	IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+    //Init Win32
+    ImGui_ImplWin32_Init(hwnd);
+            
+    //Init OpenGL Imgui Implementation
+    // GL 3.0 + GLSL 130
+    const char* glsl_version = "#version 130";
+    ImGui_ImplOpenGL3_Init(glsl_version);
+
+	// Setup style
+    ImGui::StyleColorsClassic();
 
 	app_memory memory = {};
 	memory.permenant_storage_size = Megabytes(64);
@@ -75,6 +103,12 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			app_input input = {};
 			app_window_info window_info = {};
 			window_resized = false;
+			
+			BYTE keys[256];
+			GetKeyboardState(keys);
+			input.keyboard.wireframe.started_down = keys['F'] & 0x80;
+			input.keyboard.reset.started_down = keys['R'] & 0x80;
+			input.keyboard.gen_terrace.started_down = keys['T'] & 0x80;
 
 			while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
 				if (msg.message == WM_QUIT) {
@@ -85,7 +119,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				DispatchMessage(&msg);
 			}
 
-			BYTE keys[256];
 			GetKeyboardState(keys);
 			input.keyboard.forward.ended_down = keys['W'] & 0x80;
 			input.keyboard.backward.ended_down = keys['S'] & 0x80;
@@ -95,6 +128,15 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			input.keyboard.cam_down.ended_down = keys[VK_DOWN] & 0x80;
 			input.keyboard.cam_left.ended_down = keys[VK_LEFT] & 0x80;
 			input.keyboard.cam_right.ended_down = keys[VK_RIGHT] & 0x80;
+			input.keyboard.wireframe.ended_down = keys['F'] & 0x80;
+			input.keyboard.wireframe.toggled = !input.keyboard.wireframe.started_down && keys['F'] & 0x80;
+			input.keyboard.reset.ended_down = keys['R'] & 0x80;
+			input.keyboard.reset.toggled = !input.keyboard.reset.started_down && keys['R'] & 0x80;
+			input.keyboard.gen_terrace.ended_down = keys['T'] & 0x80;
+			input.keyboard.gen_terrace.toggled = !input.keyboard.gen_terrace.started_down && keys['T'] & 0x80;
+
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplWin32_NewFrame();
 
 			RECT client;
 			GetClientRect(hwnd, &client);
@@ -115,6 +157,10 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	}
 
 	VirtualFree(memory.permenant_storage, memory.permenant_storage_size, MEM_RELEASE);
+
+	ImGui_ImplOpenGL3_Shutdown();
+    ImGui::DestroyContext();
+    ImGui_ImplWin32_Shutdown();
 
     wglMakeCurrent(0, 0);
     wglDeleteContext(glrc);

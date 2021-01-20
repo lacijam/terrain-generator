@@ -113,7 +113,7 @@ gl_message_callback(GLenum source,
                  const GLchar* message,
                  const void* userParam)
 {
-	fprintf(stderr, ">>>GLCALLBACK: %s id=%u %s\n",
+	fprintf(stdout, ">>>GLCALLBACK: %s id=%u %s\n",
            (type == GL_DEBUG_TYPE_ERROR ? "ERROR" : "" ),
             id, message);
 }
@@ -164,7 +164,12 @@ HGLRC win32_create_gl_context(HWND hwnd)
 		MessageBoxA(0, "Something went wrong during OpenGL 3.3 context current", "Fatal Error", 0);
 	}
 
+	glEnable(GL_DEBUG_OUTPUT);
+	glDebugMessageCallback(gl_message_callback, 0);
+
 	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);  
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	wglSwapIntervalEXT(0);
 

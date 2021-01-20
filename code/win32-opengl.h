@@ -37,7 +37,23 @@ GLF(GetAttribLocation, GETATTRIBLOCATION);\
 GLF(GetUniformLocation, GETUNIFORMLOCATION);\
 GLF(UniformMatrix4fv, UNIFORMMATRIX4FV);\
 GLF(Uniform3fv, UNIFORM3FV);\
-GLF(DebugMessageCallback, DEBUGMESSAGECALLBACK);
+GLF(Uniform4fv, UNIFORM4FV);\
+GLF(DebugMessageCallback, DEBUGMESSAGECALLBACK);\
+GLF(Uniform1i, UNIFORM1I);\
+GLF(Uniform1f, UNIFORM1F);\
+GLF(BindSampler, BINDSAMPLER);\
+GLF(ActiveTexture, ACTIVETEXTURE);\
+GLF(DrawElementsBaseVertex, DRAWELEMENTSBASEVERTEX);\
+GLF(BlendEquation, BLENDEQUATION);\
+GLF(BlendEquationSeparate, BLENDEQUATIONSEPARATE);\
+GLF(BlendFuncSeparate, BLENDFUNCSEPARATE);\
+GLF(GenRenderbuffers, GENRENDERBUFFERS);\
+GLF(FramebufferTexture, FRAMEBUFFERTEXTURE);\
+GLF(BindRenderbuffer, BINDRENDERBUFFER);\
+GLF(BindFramebuffer, BINDFRAMEBUFFER);\
+GLF(GenFramebuffers, GENFRAMEBUFFERS);\
+GLF(RenderbufferStorage, RENDERBUFFERSTORAGE);\
+GLF(FramebufferRenderbuffer, FRAMEBUFFERRENDERBUFFER);
 GL_FUNCS
 #undef GLF
 

@@ -5,6 +5,15 @@
 
 #include "types.h"
 
+struct V4 {
+	union {
+		real32 E[4];
+		struct {
+    		real32 x, y, z, w;
+		};
+	};
+};
+
 struct V3 {
 	union {
 		real32 E[3];
@@ -45,8 +54,10 @@ extern real32 v2_dot(V2 a, V2 b);
 extern V3 v3_cross(V3 a, V3 b);
 
 // Matrix functions.
+extern void mat4_copy(real32* dest, real32* src);
 extern void mat4_multiply(real32* result, const real32* lhs, const real32* rhs);
 extern void mat4_translate(real32* matrix, const real32 tx, const real32 ty, const real32 tz);
+extern void mat4_remove_translation(real32* matrix);
 extern void mat4_scale(real32* matrix, const real32 sx, const real32 sy, const real32 sz);
 extern void mat4_rotate_x(real32* matrix, const real32 degs);
 extern void mat4_rotate_y(real32* matrix, const real32 degs);
