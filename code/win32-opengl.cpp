@@ -165,11 +165,14 @@ HGLRC win32_create_gl_context(HWND hwnd)
 	}
 
 	glEnable(GL_DEBUG_OUTPUT);
-	glDebugMessageCallback(gl_message_callback, 0);
+	//glDebugMessageCallback(gl_message_callback, 0);
 
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_BLEND);  
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
 
 	wglSwapIntervalEXT(0);
 

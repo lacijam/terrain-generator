@@ -74,7 +74,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
 
-    //Init Win32
     ImGui_ImplWin32_Init(hwnd);
             
     //Init OpenGL Imgui Implementation
@@ -86,7 +85,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     ImGui::StyleColorsClassic();
 
 	app_memory memory = {};
-	memory.permenant_storage_size = Megabytes(64);
+	memory.permenant_storage_size = Megabytes(8000);
 	memory.permenant_storage = VirtualAlloc(0, memory.permenant_storage_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	
 	if (memory.permenant_storage) {
@@ -106,9 +105,9 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			
 			BYTE keys[256];
 			GetKeyboardState(keys);
-			input.keyboard.wireframe.started_down = keys['F'] & 0x80;
+			input.keyboard.wireframe.started_down = keys['G'] & 0x80;
 			input.keyboard.reset.started_down = keys['R'] & 0x80;
-			input.keyboard.gen_terrace.started_down = keys['T'] & 0x80;
+			input.keyboard.fly.started_down = keys['F'] & 0x80;
 
 			while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
 				if (msg.message == WM_QUIT) {
@@ -128,12 +127,12 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			input.keyboard.cam_down.ended_down = keys[VK_DOWN] & 0x80;
 			input.keyboard.cam_left.ended_down = keys[VK_LEFT] & 0x80;
 			input.keyboard.cam_right.ended_down = keys[VK_RIGHT] & 0x80;
-			input.keyboard.wireframe.ended_down = keys['F'] & 0x80;
-			input.keyboard.wireframe.toggled = !input.keyboard.wireframe.started_down && keys['F'] & 0x80;
+			input.keyboard.wireframe.ended_down = keys['G'] & 0x80;
+			input.keyboard.wireframe.toggled = !input.keyboard.wireframe.started_down && keys['G'] & 0x80;
 			input.keyboard.reset.ended_down = keys['R'] & 0x80;
 			input.keyboard.reset.toggled = !input.keyboard.reset.started_down && keys['R'] & 0x80;
-			input.keyboard.gen_terrace.ended_down = keys['T'] & 0x80;
-			input.keyboard.gen_terrace.toggled = !input.keyboard.gen_terrace.started_down && keys['T'] & 0x80;
+			input.keyboard.fly.ended_down = keys['F'] & 0x80;
+			input.keyboard.fly.toggled = !input.keyboard.fly.started_down && keys['F'] & 0x80;
 
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplWin32_NewFrame();
@@ -143,6 +142,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			window_info.w = client.right;
 			window_info.h = client.bottom;
 			window_info.resize = window_resized;
+			window_info.running = running;
 			app_update_and_render(dt, &input, &memory, &window_info);
 
 			SwapBuffers(wglGetCurrentDC());

@@ -3,10 +3,11 @@
 
 #include "types.h"
 #include "maths.h"
+#include "camera.h"
 
-#define Kilobytes(value) ((value) * 1024)
-#define Megabytes(value) (Kilobytes(value) * 1024)
-#define Gigabytes(value) (Megabytes(value) * 1024)
+#define Kilobytes(value) ((value) * 1024ULL)
+#define Megabytes(value) (Kilobytes(value) * 1024ULL)
+#define Gigabytes(value) (Megabytes(value) * 1024ULL)
 
 struct app_button_state {
     bool32 started_down;
@@ -28,7 +29,7 @@ struct app_keyboard_input {
             app_button_state cam_right;
             app_button_state wireframe;
             app_button_state reset;
-            app_button_state gen_terrace;
+            app_button_state fly;
         };
     };
 };
@@ -46,10 +47,10 @@ struct app_memory {
 
 struct app_window_info {
     u32 w, h;
-    bool resize;
+    bool32 resize, running;
 };
 
-struct app_perlin_params {
+struct world_generation_parameters {
     real32 scale;
     real32 lacunarity;
     real32 persistence;
@@ -58,30 +59,21 @@ struct app_perlin_params {
     real32 water_height;
     real32 sand_height;
     real32 snow_height;
+    real32 ambient_strength;
+    real32 diffuse_strength;
+    real32 specular_strength; 
     V3 grass_colour;
     V3 sand_colour;
     V3 snow_colour;
     V3 slope_colour;
     V3 water_colour;
     V3 light_colour;
-    real32 ambient_strength;
-    real32 diffuse_strength;
-    s32 terrace_levels;
+    V3 skybox_colour;
     s32 max_octaves;
-    bool tectonic;
-};
-
-extern void app_update_and_render(real32 dt, app_input *input, app_memory *memory, app_window_info *window_info);
-
-struct Camera {
-	V3 pos;
-	V3 front;
-	V3 up;
-	real32 view[16];
-	real32 frustrum[16];
-	real32 yaw, pitch;
-	real32 vel;
-	real32 look_speed;
+    u32 tree_count;
+    u32 tree_min_height;
+    u32 tree_max_height;
+    u32 max_trees;
 };
 
 struct TerrainShader {
@@ -92,6 +84,7 @@ struct TerrainShader {
     u32 plane;
     u32 ambient_strength;
     u32 diffuse_strength;
+    u32 specular_strength;
     u32 light_pos;
     u32 light_colour;
     u32 grass_colour;
@@ -100,6 +93,7 @@ struct TerrainShader {
     u32 snow_colour;
     u32 sand_height;
     u32 snow_height;
+    u32 view_position;
 };
 
 struct SimpleShader {
@@ -122,8 +116,8 @@ struct WaterShader {
 };
 
 struct WaterFrameBuffers {
-    static const u32 REFLECTION_WIDTH = 320;
-	static const u32 REFLECTION_HEIGHT = 180;
+    static const u32 REFLECTION_WIDTH = 640;
+	static const u32 REFLECTION_HEIGHT = 360;
 
 	static const u32 REFRACTION_WIDTH = 1280;
 	static const u32 REFRACTION_HEIGHT = 720;
@@ -137,25 +131,89 @@ struct WaterFrameBuffers {
     u32 refraction_depth_texture;
 };
 
+struct RGB {
+    u8 r, g, b;
+};
+
+struct TextureMapData {
+    static const u32 MAX_RESOLUTION = 16384;
+    u32 resolution;
+    u32 fbo, texture;
+    RGB *pixels;
+};
+
+struct Vertex {
+    V3 pos;
+    V3 nor;
+};
+
+struct QuadIndices {
+	u32 i[6];
+};
+
+struct Chunk {
+    u32 x, y;
+    u32 vbo, ebo;
+    QuadIndices *lods;
+    Vertex *vertices; // For collision
+};
+
+struct ExportSettings {
+    bool32 with_normals;
+    bool32 texture_map;
+    bool32 lods;
+};
+
+struct LODData {
+    u32 details[32];
+    u32 max_details_count; // Size of the array
+    u32 max_available_count; // Number of possible LODs for the chunk size.
+    u32 details_in_use; // Current amount of LODs being used.
+    u32 detail_multiplier;
+};
+
 struct app_state {
-    u32 vao, vbo, ebo;
-    u32 simple_vao, quad_vbo, quad_ebo;
+    app_window_info window_info;
 
     TerrainShader terrain_shader;
     SimpleShader simple_shader;
     WaterShader water_shader;
 
-    WaterFrameBuffers water_frame_buffers;
+    world_generation_parameters custom_parameters;
+    world_generation_parameters green_plains_parameters;
+    world_generation_parameters rugged_desert_parameters;
+    world_generation_parameters harsh_mountains_parameters;
+    world_generation_parameters *params;
 
-    bool32 wireframe;
-    bool32 terrace;
-
-    static const u32 chunk_height = 300;
-    static const u32 chunk_width = 300;
-
-    V3 light_pos;
+    ExportSettings export_settings;
+    TextureMapData texture_map_data;
 
     Camera cur_cam;
+
+    WaterFrameBuffers water_frame_buffers;
+
+    void* chunk_data;
+    u64 terrain_vertices_size;
+    u64 terrain_lods_size;
+
+    u32 terrain_vao;
+    LODData lod_data;
+    Chunk *chunks;
+    Chunk* current_chunk;
+    V3* trees;
+    u32 chunk_count;
+    u32 chunk_tile_length;
+    u32 chunk_vertices_length;
+    u32 world_width;
+    u32 world_tile_length;
+    V3 light_pos;
+    
+    u32 simple_vao, quad_vbo, quad_ebo;
+
+    bool32 wireframe;
+    bool32 flying;
 };
+
+extern void app_update_and_render(real32 dt, app_input *input, app_memory *memory, app_window_info *window_info);
 
 #endif

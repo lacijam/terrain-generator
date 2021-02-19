@@ -33,8 +33,8 @@ struct V2 {
 };
 
 // Vector functions.
-extern V3& operator+=(V3 &v, V3 &w);
-extern V3& operator-=(V3 &v, V3 &w);
+extern V3& operator+=(V3 &v, V3 w);
+extern V3& operator-=(V3 &v, V3 w);
 extern V3 operator+(const V3 &v, const V3 &w);
 extern V3 operator-(const V3 &v, const V3 &w);
 extern V3 operator*(const V3 &v, const real32 s);

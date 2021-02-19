@@ -38,6 +38,7 @@ namespace Shaders {
 
     uniform float ambient_strength;
     uniform float diffuse_strength;
+    uniform float specular_strength;
 
     uniform vec3 light_pos;
     uniform vec3 light_colour;
@@ -50,6 +51,8 @@ namespace Shaders {
     uniform float sand_height;
     uniform float snow_height;
 
+    uniform vec3 view_position;
+
     out vec4 frag;
 
     void main()
@@ -58,11 +61,17 @@ namespace Shaders {
         //float attenuation = 1.0f / (1.0f + 0.001 * dist + 0.0001 * dist * dist);
         float attenuation = 1.0f;
         
-        vec3 light_dir = normalize(light_pos - v_pos);
         vec3 light_colour = vec3(1.0f, 0.9f, 0.8f);
+        vec3 ambient = ambient_strength * light_colour;
+
+        vec3 light_dir = normalize(light_pos - v_pos);
         float diff = max(dot(v_nor, light_dir), 0.0f);
         vec3 diffuse = diff * light_colour * attenuation * diffuse_strength;
-        vec3 ambient = ambient_strength * light_colour;
+
+        vec3 view_dir = normalize(view_position + v_pos);
+        vec3 reflect_dir = reflect(-light_dir, v_nor);
+        float spec = pow(max(dot(view_dir, reflect_dir), 0.f), 3);
+        vec3 specular = specular_strength * spec * light_colour;
 
         vec4 grass_colour_rgba = vec4(grass_colour, 1.0f);
         vec4 slope_colour_rgba = vec4(slope_colour, 1.0f);
@@ -76,7 +85,7 @@ namespace Shaders {
             blended = mix(blended, snow_colour_rgba, 0.03f * (v_pos.y - snow_height));
         }
 
-        frag = vec4(ambient + diffuse, 1.f) * blended;
+        frag = vec4(ambient + diffuse + specular, 1.f) * blended;
     }
     )";
 
@@ -149,6 +158,63 @@ namespace Shaders {
 
         frag = mix(reflect_colour, refract_colour, 0.5f);
         frag = mix(frag, water_colour_rgba, 0.5f);
+    }
+    )";
+
+    const char* const TEXTURE_VERTEX_SHADER_SOURCE = R"(
+    #version 330
+
+    layout (location = 0) in vec3 a_pos;
+    layout (location = 1) in vec3 a_nor;
+    out vec3 v_pos;
+    out vec3 v_nor;
+
+    uniform mat4 projection;
+    uniform mat4 view;
+    uniform mat4 model;
+    
+    void main()
+    {
+        vec4 world_position = model * vec4(a_pos, 1.0);
+
+        v_pos = vec3(world_position);
+        v_nor = a_nor;
+
+        gl_Position = projection * view * model * vec4(a_pos, 1.0);
+    }
+    )";
+
+    const char* const TEXTURE_FRAGMENT_SHADER_SOURCE = R"(
+    #version 330
+		
+    in vec3 v_pos;
+    in vec3 v_nor;
+
+    uniform vec3 grass_colour;
+    uniform vec3 sand_colour;
+    uniform vec3 snow_colour;
+    uniform vec3 slope_colour;
+
+    uniform float sand_height;
+    uniform float snow_height;
+
+    out vec4 frag;
+
+    void main()
+    {
+        vec4 grass_colour_rgba = vec4(grass_colour, 1.0f);
+        vec4 slope_colour_rgba = vec4(slope_colour, 1.0f);
+        vec4 snow_colour_rgba = vec4(snow_colour, 1.0f);
+        vec4 sand_colour_rgba = vec4(sand_colour, 1.0f);
+        vec4 blended = mix(grass_colour_rgba, slope_colour_rgba, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
+
+        if (v_pos.y < sand_height) {
+            blended = mix(blended, sand_colour_rgba, 1.f - v_pos.y / sand_height);
+        } else if (v_pos.y > snow_height) {
+            blended = mix(blended, snow_colour_rgba, 0.03f * (v_pos.y - snow_height));
+        }
+
+        frag = blended;
     }
     )";
 };

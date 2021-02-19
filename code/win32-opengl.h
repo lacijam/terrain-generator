@@ -49,11 +49,13 @@ GLF(BlendEquationSeparate, BLENDEQUATIONSEPARATE);\
 GLF(BlendFuncSeparate, BLENDFUNCSEPARATE);\
 GLF(GenRenderbuffers, GENRENDERBUFFERS);\
 GLF(FramebufferTexture, FRAMEBUFFERTEXTURE);\
+GLF(DeleteFramebuffers, DELETEFRAMEBUFFERS);\
 GLF(BindRenderbuffer, BINDRENDERBUFFER);\
 GLF(BindFramebuffer, BINDFRAMEBUFFER);\
 GLF(GenFramebuffers, GENFRAMEBUFFERS);\
 GLF(RenderbufferStorage, RENDERBUFFERSTORAGE);\
-GLF(FramebufferRenderbuffer, FRAMEBUFFERRENDERBUFFER);
+GLF(FramebufferRenderbuffer, FRAMEBUFFERRENDERBUFFER);\
+GLF(BufferSubData, BUFFERSUBDATA);
 GL_FUNCS
 #undef GLF
 

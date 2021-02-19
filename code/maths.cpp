@@ -1,6 +1,6 @@
 #include "maths.h"
 
-V3& operator+=(V3 &v, V3 &w)
+V3& operator+=(V3 &v, V3 w)
 {
     v.x += w.x;
     v.y += w.y;
@@ -8,7 +8,7 @@ V3& operator+=(V3 &v, V3 &w)
     return v;
 }
 
-V3& operator-=(V3 &v, V3 &w)
+V3& operator-=(V3 &v, V3 w)
 {
     v.x -= w.x;
     v.y -= w.y;
@@ -249,10 +249,12 @@ void mat4_frustrum(real32* matrix, real32 left, real32 right, real32 bottom, rea
 void mat4_look_at(real32* matrix, V3 eye, V3 centre, V3 up)
 {
 	V3 F, T, S, U;
+	
 	F = v3_normalise(centre - eye);
 	T = v3_normalise(up);
 	S = v3_normalise(v3_cross(F, T));
 	U = v3_normalise(v3_cross(S, F));
+
 	mat4_identity(matrix);
 	matrix[0] = S.x;
 	matrix[1] = U.x;
