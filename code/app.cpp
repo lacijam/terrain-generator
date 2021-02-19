@@ -2,7 +2,6 @@
 
 #include <assert.h>
 #include <stdlib.h>
-#include <thread>
 #include <mutex>
 #include <string>
 #include <fstream>
@@ -32,29 +31,17 @@ static real32 noise(V2 p) {
 	return 0.5f + perlin(p);
 }
 
-struct ChunkGenerationData {
-	u32 x0, y0, x1, y1;
-	u32 chunk_x, chunk_y;
-};
-
-struct ChunkResult {
-	Vertex* vertices;
-	QuadIndices* lods;
-	u64 vertices_size;
-	u64 generated_lods_size;
-	u64 chunk_data_offset;
-};
-
-static void generate_chunk_section_vertices(app_state *state, Vertex *vertices, ChunkGenerationData data)
+static void app_generate_terrain_chunk(
+	app_state *state
+	, app_memory *memory
+	, Chunk *chunk)
 {
-	u32 num_vertices = state->chunk_vertices_length;
-	
-	for (u32 j = data.x0; j < data.x1; j++) {
-		for (u32 i = data.y0; i < data.y1; i++) {
-			u32 index = j * num_vertices + i;
+	for (u32 j = 0; j < state->chunk_vertices_length; j++) {
+		for (u32 i = 0; i < state->chunk_vertices_length; i++) {
+			u32 index = j * state->chunk_vertices_length + i;
 
-			real32 x = (data.chunk_x + (real32)i / state->chunk_tile_length) / state->params->scale;
-			real32 y = (data.chunk_y + (real32)j / state->chunk_tile_length) / state->params->scale;
+			real32 x = (chunk->x + (real32)i / state->chunk_tile_length) / state->params->scale;
+			real32 y = (chunk->y + (real32)j / state->chunk_tile_length) / state->params->scale;
 
 			real32 total = 0;
 			real32 frequency = 1;
@@ -76,119 +63,53 @@ static void generate_chunk_section_vertices(app_state *state, Vertex *vertices, 
 
 			const real32 elevation = ((powf(octave_result, state->params->elevation_power)) * state->params->y_scale * state->params->scale);
 
-			vertices[index].pos.x = i;
-			vertices[index].pos.y = elevation;
-			vertices[index].pos.z = j;
-			vertices[index].nor = {};
+			chunk->vertices[index].pos.x = i;
+			chunk->vertices[index].pos.y = elevation;
+			chunk->vertices[index].pos.z = j;
+			chunk->vertices[index].nor = {};
 		}
 	}
-}
 
-static void generate_chunk_section_lods(app_state *state, QuadIndices *lods, ChunkGenerationData data)
-{
-	u32 num_vertices = state->chunk_vertices_length;
-	
-	u32 indices_width = data.x1;
-	u32 indices_height = data.y1;
+	u64 lod_offset = 0;
+	for (u32 lod_detail_index = 0; lod_detail_index < state->lod_settings.max_available_count; lod_detail_index++) {
+		const u32 detail = state->lod_settings.details[lod_detail_index];
 
-	u32 lod_offset = 0;
-	for (u32 lod_detail_index = 0; lod_detail_index < state->lod_data.max_available_count; lod_detail_index++) {
-		const u32 detail = state->lod_data.details[lod_detail_index];
-		
-		if (indices_width == state->chunk_vertices_length) {
-			indices_width -= detail;
-		}
+		u32 indices_length = state->chunk_vertices_length - detail;
 
-		if (indices_height == state->chunk_vertices_length) {
-			indices_height -= detail;
-		}
-
-		for (u32 j = data.x0; j < indices_width; j += detail) {
-			for (u32 i = data.y0; i < indices_height; i += detail) {
-				u32 pos = lod_offset + (j * (state->chunk_tile_length) + i);
+		for (u32 j = 0; j < indices_length; j += detail) {
+			for (u32 i = 0; i < indices_length; i += detail) {
 				u32 data_pos = lod_offset + ((j / detail) * (state->chunk_tile_length / detail) + (i / detail));
 
-				lods[data_pos].i[0] = (j + detail) * num_vertices + i;
-				lods[data_pos].i[1] = (j + detail) * num_vertices + i + detail;
-				lods[data_pos].i[2] = j * num_vertices + i + detail;
-				lods[data_pos].i[3] = (j + detail) * num_vertices + i;
-				lods[data_pos].i[4] = j * num_vertices + i + detail;
-				lods[data_pos].i[5] = j * num_vertices + i;
+				u32 v0 = j * state->chunk_vertices_length + i;
+				u32 v1 = j * state->chunk_vertices_length + i + detail;
+				u32 v2 = (j + detail) * state->chunk_vertices_length + i;
+				u32 v3 = (j + detail) * state->chunk_vertices_length + i + detail;
+
+				chunk->lods[data_pos].i[0] = v3;
+				chunk->lods[data_pos].i[1] = v1;
+				chunk->lods[data_pos].i[2] = v0;
+				chunk->lods[data_pos].i[3] = v2;
+				chunk->lods[data_pos].i[4] = v3;
+				chunk->lods[data_pos].i[5] = v0;
 			}
 		}
+
+		chunk->lod_offsets[lod_detail_index] = lod_offset;
 
 		lod_offset += (state->chunk_tile_length / detail) * (state->chunk_tile_length / detail);
 	}
-}
 
-static void generate_terrain_chunk_section_func(app_state *state, Vertex *vertices, QuadIndices *lods, ChunkGenerationData data) 
-{
-	generate_chunk_section_vertices(state, vertices, data);
-	generate_chunk_section_lods(state, lods, data);
-}
-
-static void app_generate_terrain_chunk(
-	app_state *state
-	, app_memory *memory
-	, u32 chunk_x
-	, u32 chunk_y
-	, ChunkResult *result)
-{
-	u64 chunk_vertices_size = (state->chunk_vertices_length) * (state->chunk_vertices_length) * sizeof(Vertex);
-
-	u64 chunk_lods_size = 0;
-	for (u32 lod_detail_index = 0; lod_detail_index < state->lod_data.max_available_count; lod_detail_index++) {
-		// We don't want to go to the last row/column when making the tiles.
-		const u32 detail = state->lod_data.details[lod_detail_index];
-		chunk_lods_size += (state->chunk_tile_length / detail) * (state->chunk_tile_length / detail) * sizeof(QuadIndices);
-	}
-
-	u64 chunk_data_offset = (chunk_vertices_size + chunk_lods_size) * (chunk_y * state->world_width + chunk_x);
-	Vertex *chunk_vertices = (Vertex*)((char*)state->chunk_data + chunk_data_offset);
-	QuadIndices *chunk_lods = (QuadIndices*)((char*)state->chunk_data + chunk_data_offset + chunk_vertices_size);
-
-	const u32 thread_count = 1;
-	const u32 split_factor = sqrtf(thread_count);
-	const u32 section_size = (state->chunk_tile_length / split_factor);
-
-	std::thread threads[thread_count];
-
-	for (u32 j = 0; j < split_factor; j++) {
-		for (u32 i = 0; i < split_factor; i++) {
-			ChunkGenerationData data;
-			data.x0 = section_size * i;
-			data.y0 = section_size * j;
-			data.x1 = data.x0 + section_size + 1; // +1 to make sure we generate that last row/column
-			data.y1 = data.y0 + section_size + 1;
-			
-			// Prevent overflow.
-			if (data.x1 > state->chunk_vertices_length) {
-				data.x1 = state->chunk_vertices_length;
-			}
-			if (data.y1 > state->chunk_vertices_length) {
-				data.y1 = state->chunk_vertices_length;
-			}
-			
-			data.chunk_x = chunk_x;
-			data.chunk_y = chunk_y;
-			threads[j * split_factor + i] = std::thread(generate_terrain_chunk_section_func, state, chunk_vertices, chunk_lods, data);
-		}
-	}
-
-	for (int i = 0; i < thread_count; i++) {
-		threads[i].join();
-	}
+	chunk->lod_index_count = lod_offset;
 
 	// Calculate normals for each vertex for each sum normals of surrounding.
 	for (u32 j = 0; j < state->chunk_tile_length; j++) {
 		for (u32 i = 0; i < state->chunk_tile_length; i++) {
 			u32 pos = j * state->chunk_tile_length + i;
 			for (u32 tri = 0; tri < 2; tri++) {
-				Vertex* a = &chunk_vertices[chunk_lods[pos].i[tri * 3 + 0]];
-				Vertex* b = &chunk_vertices[chunk_lods[pos].i[tri * 3 + 1]];
-				Vertex* c = &chunk_vertices[chunk_lods[pos].i[tri * 3 + 2]];
-				V3 cp = v3_cross(c->pos - a->pos, b->pos - a->pos);
-				cp = cp * -1.f;
+				Vertex* a = &chunk->vertices[chunk->lods[pos].i[tri * 3 + 0]];
+				Vertex* b = &chunk->vertices[chunk->lods[pos].i[tri * 3 + 1]];
+				Vertex* c = &chunk->vertices[chunk->lods[pos].i[tri * 3 + 2]];
+				V3 cp = v3_cross(b->pos - a->pos, c->pos - a->pos);
 				a->nor += cp;
 				b->nor += cp;
 				c->nor += cp;
@@ -200,15 +121,9 @@ static void app_generate_terrain_chunk(
 	for (u32 j = 0; j < state->chunk_vertices_length; j++) {
 		for (u32 i = 0; i < state->chunk_vertices_length; i++) {
 			u32 index = j * (state->chunk_vertices_length) + i;
-			chunk_vertices[index].nor = v3_normalise(chunk_vertices[index].nor);
+			chunk->vertices[index].nor = v3_normalise(chunk->vertices[index].nor);
 		}
 	}
-
-	result->vertices = chunk_vertices;
-	result->lods = chunk_lods;
-	result->vertices_size = chunk_vertices_size;
-	result->generated_lods_size = chunk_lods_size;
-	result->chunk_data_offset = chunk_data_offset;
 }
 
 static u32 create_shader(const char *vertex_shader_source, const char *fragment_shader_source)
@@ -334,6 +249,14 @@ static void app_on_destroy(app_state *state)
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
+	
+	glDeleteTextures(1, &state->water_frame_buffers.reflection_texture);
+	glDeleteTextures(1, &state->water_frame_buffers.refraction_texture);
+	glDeleteFramebuffers(1, &state->water_frame_buffers.reflection_fbo);
+	glDeleteFramebuffers(1, &state->water_frame_buffers.refraction_fbo);
+
+	glDeleteTextures(1, &state->texture_map_data.texture);
+	glDeleteFramebuffers(1, &state->texture_map_data.fbo);
 
 	for (u32 i = 0; i < state->chunk_count; i++) {
 		glDeleteBuffers(1, &state->chunks[i].ebo);
@@ -351,7 +274,7 @@ static void app_on_destroy(app_state *state)
     glDeleteProgram(state->water_shader.program);
 }
 
-static void app_render_chunk(app_state *state, real32 *clip, u32 x, u32 y)
+static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 {
 	glUseProgram(state->terrain_shader.program);
 
@@ -375,54 +298,50 @@ static void app_render_chunk(app_state *state, real32 *clip, u32 x, u32 y)
 
 	glBindVertexArray(state->terrain_vao);
 
-	glBindBuffer(GL_ARRAY_BUFFER, state->chunks[y * state->world_width + x].vbo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->chunks[y * state->world_width + x].ebo);
+	u32 chunk_index = chunk->y * state->world_width + chunk->x;
+
+	glBindBuffer(GL_ARRAY_BUFFER, state->chunks[chunk_index].vbo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->chunks[chunk_index].ebo);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
 
 	real32 model[16];
 	mat4_identity(model);
-	mat4_translate(model, x * state->chunk_tile_length, 0, y * state->chunk_tile_length);
+	mat4_translate(model, chunk->x * state->chunk_tile_length, 0, chunk->y * state->chunk_tile_length);
 
 	glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
 	glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, state->cur_cam.view);
 	glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
 
 	// Default LOD is the highest quality.
-	u32 chunk_lod_detail = 1;
+	u32 chunk_lod_detail = 0;
 	s32 distance = 0;
 
 	// Calculate distance from camera's chunk and use that to index the 
 	// the LOD level data.
-	if (x != state->current_chunk->x || y != state->current_chunk->y) {
-		const u32 dx2 = (x - state->current_chunk->x) * (x - state->current_chunk->x);
-		const u32 dy2 = (y - state->current_chunk->y) * (y - state->current_chunk->y);
-		distance = sqrtf(dx2 + dy2);
+	if (chunk != state->current_chunk) {
+		const u32 dx = chunk->x - state->current_chunk->x;
+		const u32 dy = chunk->y - state->current_chunk->y;
+		distance = sqrtf(dx * dx + dy * dy);
 
 		// Cap the distance to the highest (lowest detail) LOD.
-		if (distance >= state->lod_data.details_in_use) {
-			distance = state->lod_data.details_in_use - 1;
-		} else if (distance < 0) {
-			distance = 0;
+		if (distance >= state->lod_settings.details_in_use) {
+			distance = state->lod_settings.details_in_use - 1;
 		}
 
-		chunk_lod_detail = state->lod_data.details[distance];
+		chunk_lod_detail = distance;
 	}
 
 	// The width in vertices of the LOD.
-	const u32 lod_tile_length = state->chunk_tile_length / chunk_lod_detail;
+	const u32 lod_tile_length = state->chunk_tile_length / state->lod_settings.details[chunk_lod_detail];
+	// Number of indices in a chunk LOD.
+	const u32 lod_indices_area = lod_tile_length * lod_tile_length * 6;
+
+	const u64 chunk_offset_in_bytes = chunk->lod_offsets[chunk_lod_detail] * sizeof(QuadIndices);
 
 	// Find the offset of the LOD data we want to use be looping through every LOD level
 	// before the one we want and calculating the sum of the total size.
-
-	// @Speed I can calculate this during terrain generation and store it in the LOD detail array.
-	u32 offset = 0;	
-	for (u32 lod_detail_index = 0; lod_detail_index < distance; lod_detail_index++) {
-		const u32 detail = state->lod_data.details[lod_detail_index];
-		offset += (state->chunk_tile_length / detail) * (state->chunk_tile_length / detail) * 6;
-	}
-
-	glDrawElements(GL_TRIANGLES, (lod_tile_length * lod_tile_length * 6), GL_UNSIGNED_INT, (void*)(offset * sizeof(GLuint)));
+	glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(chunk_offset_in_bytes));
 
 	if (state->wireframe) {
 		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
@@ -432,7 +351,7 @@ static void app_render_chunk(app_state *state, real32 *clip, u32 x, u32 y)
 		glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat*)&grid_colour);
 		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat*)&grid_colour);
 		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat*)&grid_colour);
-		glDrawElements(GL_TRIANGLES, (lod_tile_length * lod_tile_length * 6), GL_UNSIGNED_INT, (void*)(offset * sizeof(GLuint)));
+		glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(chunk_offset_in_bytes));
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
 }
@@ -519,18 +438,14 @@ static void generate_trees(app_state* state)
 
 static void generate_world(app_state* state, app_memory* memory)
 {
-	u32 world_width_sq = state->world_width * state->world_width;
-	std::thread* threads = (std::thread*)my_malloc(memory, world_width_sq * sizeof(std::thread));
-	ChunkResult* results = (ChunkResult*)my_malloc(memory, world_width_sq * sizeof(ChunkResult));
-
 	for (u32 j = 0; j < state->world_width; j++) {
 		for (u32 i = 0; i < state->world_width; i++) {
-			threads[j * state->world_width + i] = std::thread(app_generate_terrain_chunk, state, memory, i, j, &results[j * state->world_width + i]);
+			state->generation_threads[j * state->world_width + i] = std::thread(app_generate_terrain_chunk, state, memory, &state->chunks[j * state->world_width + i]);
 		}
 	}
 
-	for (u32 i = 0; i < world_width_sq; i++) {
-		threads[i].join();
+	for (u32 i = 0; i < state->world_area; i++) {
+		state->generation_threads[i].join();
 	}
 
 	glBindVertexArray(state->terrain_vao);
@@ -540,50 +455,44 @@ static void generate_world(app_state* state, app_memory* memory)
 			u32 index = j * state->world_width + i;
 
 			Chunk* chunk = &state->chunks[index];
-			ChunkResult *result = &results[index];
 
 			glBindBuffer(GL_ARRAY_BUFFER, chunk->vbo);
-			glBufferData(GL_ARRAY_BUFFER, result->vertices_size, result->vertices, GL_STATIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, chunk->vertices_count * sizeof Vertex, chunk->vertices, GL_STATIC_DRAW);
 			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
 			glEnableVertexAttribArray(0);
 
-			chunk->vertices = (Vertex*)((char*)state->chunk_data + result->chunk_data_offset);
-
 			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk->ebo);
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, result->generated_lods_size, result->lods, GL_STATIC_DRAW);
-
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, chunk->lod_index_count * sizeof(QuadIndices), chunk->lods, GL_STATIC_DRAW);
 			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
 			glEnableVertexAttribArray(1);
-
-			chunk->lods = (QuadIndices*)((char*)state->chunk_data + result->chunk_data_offset + result->vertices_size);
 		}
 	}
 
 	generate_trees(state);
 }
 
-std::string face_string_with_normals(u32 f0, u32 f1, u32 f2)
+static std::string face_string_with_normals(u32 f0, u32 f1, u32 f2)
 {
 	std::stringstream ss;
 	ss << "f " << f0 << "//" << f0 << " " << f1 << "//" << f1 << " " << f2 << "//" << f2 << std::endl;
 	return ss.str();
 }
 
-std::string face_string_with_uv(u32 f0, u32 f1, u32 f2)
+static std::string face_string_with_uv(u32 f0, u32 f1, u32 f2)
 {
 	std::stringstream ss;
 	ss << "f " << f0 << "/" << f0 << " " << f1 << "/" << f1 << " " << f2 << "/" << f2 << std::endl;
 	return ss.str();
 }
 
-std::string face_string_with_normals_and_uv(u32 f0, u32 f1, u32 f2)
+static std::string face_string_with_normals_and_uv(u32 f0, u32 f1, u32 f2)
 {
 	std::stringstream ss;
 	ss << "f " << f0 << "/" << f0 << "/" << f0 << " " << f1 << "/" << f1 << "/" << f1 << " " << f2 << "/" << f2 << "/" << f2 << std::endl;
 	return ss.str();
 }
 
-std::string face_string_without_normals(u32 f0, u32 f1, u32 f2)
+static std::string face_string_without_normals(u32 f0, u32 f1, u32 f2)
 {
 	std::stringstream ss;
 	ss << "f " << f0 << " " << f1 << " " << f2 << std::endl;
@@ -668,24 +577,25 @@ static void export_terrain_as_obj(app_state* state)
 		for (u32 chunk_z = 0; chunk_z < state->world_width; chunk_z++) {
 			for (u32 chunk_x = 0; chunk_x < state->world_width; chunk_x++) {
 				u32 chunk_index = chunk_z * state->world_width + chunk_x;
+				
+				Chunk* current_chunk = &state->chunks[chunk_index];
 
-				// As we loop through LOD data, add to this to find offset of next LOD.
-				u64 lod_data_offset = 0;
 				u32 num_lods_to_export = 1;
 
 				if (state->export_settings.lods) {
-					num_lods_to_export = state->lod_data.details_in_use;
+					num_lods_to_export = state->lod_settings.details_in_use;
 				}
 
 				// Each LOD has a group in that object.
 				for (u32 lod_detail_index = 0; lod_detail_index < num_lods_to_export; lod_detail_index++) {
 					object_file << "g Chunk" << chunk_index << "LOD" << lod_detail_index << std::endl;
 
-					const u32 lod_detail = state->lod_data.details[lod_detail_index];
+					const u32 lod_detail = state->lod_settings.details[lod_detail_index];
+					
 					u32 num_indices = (state->chunk_tile_length / lod_detail) * (state->chunk_tile_length / lod_detail);
 
 					for (u32 index = 0; index < num_indices; index++) {
-						QuadIndices* current_quad = &state->chunks[chunk_index].lods[lod_data_offset + index];
+						QuadIndices* current_quad = &current_chunk->lods[current_chunk->lod_offsets[lod_detail_index] + index];
 						u64 chunk_vertices_size = chunk_index * num_vertices;
 
 						u32 f0 = current_quad->i[0] + 1 + chunk_vertices_size;
@@ -698,8 +608,6 @@ static void export_terrain_as_obj(app_state* state)
 						u32 f5 = current_quad->i[5] + 1 + chunk_vertices_size;
 						object_file << face_string_func(f3, f4, f5);
 					}
-
-					lod_data_offset += num_indices;
 				}
 			}
 		}
@@ -831,7 +739,7 @@ static void app_render(app_state *state, app_memory *memory)
 	state->cur_cam = reflection_cam;
 
 	for (u32 i = 0; i < state->chunk_count; i++) {
-		app_render_chunk(state, reflection_clip, state->chunks[i].x, state->chunks[i].y);
+		app_render_chunk(state, reflection_clip, &state->chunks[i]);
 	}
 
 	app_render_lights_and_features(state);
@@ -848,7 +756,7 @@ static void app_render(app_state *state, app_memory *memory)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	for (u32 i = 0; i < state->chunk_count; i++) {
-		app_render_chunk(state, refraction_clip, state->chunks[i].x, state->chunks[i].y);
+		app_render_chunk(state, refraction_clip, &state->chunks[i]);
 	}
 
 	app_render_lights_and_features(state);
@@ -858,7 +766,7 @@ static void app_render(app_state *state, app_memory *memory)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	for (u32 i = 0; i < state->chunk_count; i++) {
-		app_render_chunk(state, no_clip, state->chunks[i].x, state->chunks[i].y);
+		app_render_chunk(state, no_clip, &state->chunks[i]);
 	}
 
 	app_render_lights_and_features(state);
@@ -939,7 +847,7 @@ static void app_render(app_state *state, app_memory *memory)
 	}
 
 	if (ImGui::TreeNode("LOD")) {
-		ImGui::SliderInt("number of LODs", (int*)&state->lod_data.details_in_use, 1, state->lod_data.max_available_count, "%d", ImGuiSliderFlags_None);
+		ImGui::SliderInt("number of LODs", (int*)&state->lod_settings.details_in_use, 1, state->lod_settings.max_available_count, "%d", ImGuiSliderFlags_None);
 
 		ImGui::TreePop();
 	}
@@ -1069,54 +977,6 @@ void app_init(app_state* state, app_memory* memory)
 
 	init_rng();
 
-	state->custom_parameters.scale = 4.3f;
-	state->custom_parameters.lacunarity = 1.6f;
-	state->custom_parameters.persistence = 0.45f;
-	state->custom_parameters.elevation_power = 3.f;
-	state->custom_parameters.y_scale = 75.f;
-	state->custom_parameters.max_octaves = 16;
-	state->custom_parameters.water_height = 5.f;
-	state->custom_parameters.sand_height = 6.f;
-	state->custom_parameters.snow_height = 200.f;
-	state->custom_parameters.ambient_strength = 1.f;
-	state->custom_parameters.diffuse_strength = 0.3f;
-	state->custom_parameters.specular_strength = 0.75f;
-	state->custom_parameters.light_colour = { 1.f, 0.8f, 0.7f };
-	state->custom_parameters.grass_colour = { 0.15f, 0.23f, 0.13f };
-	state->custom_parameters.sand_colour = { 0.8f, 0.81f, 0.55f };
-	state->custom_parameters.snow_colour = { 0.8f, 0.8f, 0.8f };
-	state->custom_parameters.slope_colour = { 0.7f, 0.67f, 0.56f };
-	state->custom_parameters.water_colour = { .2f, .2f, 0.4f };
-	state->custom_parameters.skybox_colour = { 0.65f, 0.65f, 1.f };
-	state->custom_parameters.tree_count = 0;
-	state->custom_parameters.tree_min_height = state->custom_parameters.sand_height;
-	state->custom_parameters.tree_max_height = state->custom_parameters.snow_height;
-	state->custom_parameters.max_trees = 10000;
-
-	CopyMemory(&state->green_plains_parameters, &state->custom_parameters, sizeof(world_generation_parameters));
-	state->green_plains_parameters.water_height = 2.f;
-	state->green_plains_parameters.sand_height = 2.5f;
-	state->green_plains_parameters.y_scale = 50.;
-	state->green_plains_parameters.lacunarity = 1.6f;
-
-	CopyMemory(&state->rugged_desert_parameters, &state->custom_parameters, sizeof(world_generation_parameters));
-	state->rugged_desert_parameters.persistence = 0.55f;
-	state->rugged_desert_parameters.lacunarity = 1.7f;
-	state->rugged_desert_parameters.y_scale = 50.f;
-	state->rugged_desert_parameters.sand_height = 500;
-	state->rugged_desert_parameters.water_height = 0;
-
-	CopyMemory(&state->harsh_mountains_parameters, &state->custom_parameters, sizeof(world_generation_parameters));
-	state->harsh_mountains_parameters.y_scale = 150.f;
-	state->harsh_mountains_parameters.lacunarity = 1.7f;
-	state->harsh_mountains_parameters.persistence = 0.51f;
-	state->harsh_mountains_parameters.elevation_power = 4.f;
-	state->harsh_mountains_parameters.water_height = 15.f;
-	state->harsh_mountains_parameters.sand_height = 17.f;
-	state->harsh_mountains_parameters.snow_height = 500.f;
-
-	state->params = &state->harsh_mountains_parameters;
-
 	glGenVertexArrays(1, &state->simple_vao);
 	glBindVertexArray(state->simple_vao);
 
@@ -1145,33 +1005,36 @@ void app_init(app_state* state, app_memory* memory)
 
 	app_init_shaders(state);
 
-	state->trees = (V3*)my_malloc(memory, state->params->max_trees * sizeof V3);
-
 	state->chunk_tile_length = 256;
 	state->chunk_vertices_length = state->chunk_tile_length + 1;
-	state->world_width = 2;
 	state->chunk_count = 0;
+	state->world_width = 5;
+	state->world_area = state->world_width * state->world_width;
 	state->world_tile_length = state->chunk_tile_length * state->world_width;
 
+	state->generation_threads = (std::thread*)my_malloc(memory, state->world_area * sizeof(std::thread));
+
 	// Reserve space for upto 10 LOD levels.
-	state->lod_data.max_details_count = 32;
+	state->lod_settings.max_details_count = 32;
+	state->lod_settings.details = (u32*)my_malloc(memory, state->lod_settings.max_details_count * sizeof(u32));
+
 	// LOD detail levels have to be powers of 2 or everything blows up.
 	u32 detail = 1;
-	for (u32 i = 0; i < state->lod_data.max_details_count; i++) {
-		state->lod_data.details[i] = detail;
+	for (u32 i = 0; i < state->lod_settings.max_details_count; i++) {
+		state->lod_settings.details[i] = detail;
 		detail *= 2;
 	}
 
 	// Find the most LODs possible for the chunk size.
-	for (u32 i = 0; i < state->lod_data.max_details_count; i++) {
-		state->lod_data.max_available_count = i;
+	for (u32 i = 0; i < state->lod_settings.max_details_count; i++) {
+		state->lod_settings.max_available_count = i;
 
-		if (state->lod_data.details[i] > state->chunk_tile_length) {
+		if (state->lod_settings.details[i] > state->chunk_tile_length) {
 			break;
 		}
 	}
 
-	state->lod_data.details_in_use = state->lod_data.max_available_count;
+	state->lod_settings.details_in_use = state->lod_settings.max_available_count;
 	// end of LOD setting configuration.
 
 	state->light_pos = { ((real32)state->chunk_tile_length / 2) * state->world_width, 5000.f, ((real32)state->chunk_tile_length / 2) * state->world_width };
@@ -1180,28 +1043,93 @@ void app_init(app_state* state, app_memory* memory)
 	
 	init_terrain_texture_map_data(state, memory);
 
-	state->chunks = (Chunk*)my_malloc(memory, state->world_width * state->world_width * sizeof(Chunk));
-
 	// Check we have enough space to vertices and LODS.
-	u64 world_vertex_size = state->world_width * state->world_width * (state->chunk_vertices_length) * (state->chunk_vertices_length) * sizeof Vertex;
+	u64 world_vertex_size = state->world_area * (state->chunk_vertices_length) * (state->chunk_vertices_length) * sizeof Vertex;
 	u64 world_indices_size = 0;
-	for (u32 i = 0; i < 10; i++) {
-		world_indices_size += state->world_width * state->world_width * (state->chunk_tile_length / state->lod_data.details[i]) * (state->chunk_tile_length / state->lod_data.details[i]) * sizeof QuadIndices;
+	for (u32 i = 0; i < state->lod_settings.max_available_count; i++) {
+		world_indices_size += state->world_area * (state->chunk_tile_length / state->lod_settings.details[i]) * (state->chunk_tile_length / state->lod_settings.details[i]) * sizeof QuadIndices;
 	}
 
-	state->chunk_data = my_malloc(memory, world_vertex_size + world_indices_size);
+	// We need a big 'ol grid with an area equal to the maximum amount of vertices in the world.
+	// This mesh will be sampled and used to generate the optmized chunk meshes.
+	state->perlin_noise_vertices = (Vertex*)my_malloc(memory, world_vertex_size);
+	state->perlin_noise_mesh = (QuadIndices*)my_malloc(memory, world_indices_size);
 
 	glGenVertexArrays(1, &state->terrain_vao);
 
+	state->chunks = (Chunk*)my_malloc(memory, state->world_area * sizeof(Chunk));
+
 	for (u32 j = 0; j < state->world_width; j++) {
 		for (u32 i = 0; i < state->world_width; i++) {
-			glGenBuffers(1, &state->chunks[j * state->world_width + i].vbo);
-			glGenBuffers(1, &state->chunks[j * state->world_width + i].ebo);
-			state->chunks[j * state->world_width + i].x = i;
-			state->chunks[j * state->world_width + i].y = j;
+			u32 index = j * state->world_width + i;
+			glGenBuffers(1, &state->chunks[index].vbo);
+			glGenBuffers(1, &state->chunks[index].ebo);
+			state->chunks[index].x = i;
+			state->chunks[index].y = j;
+
+			u64 chunk_vertices_size = (state->chunk_vertices_length) * (state->chunk_vertices_length) * sizeof(Vertex);
+
+			u64 chunk_lods_size = 0;
+			for (u32 lod_detail_index = 0; lod_detail_index < state->lod_settings.max_available_count; lod_detail_index++) {
+				const u32 detail = state->lod_settings.details[lod_detail_index];
+				chunk_lods_size += (state->chunk_tile_length / detail) * (state->chunk_tile_length / detail) * sizeof(QuadIndices);
+			}
+
+			state->chunks[index].vertices_count = (state->chunk_vertices_length) * (state->chunk_vertices_length);
+			state->chunks[index].lod_index_count = 0;
+			state->chunks[index].vertices = (Vertex*)(my_malloc(memory, chunk_vertices_size));
+			state->chunks[index].lods = (QuadIndices*)(my_malloc(memory, chunk_lods_size));
+			state->chunks[index].lod_offsets = (u64*)my_malloc(memory, state->lod_settings.max_available_count * sizeof(u64));
+
 			state->chunk_count++;
 		}
 	}
+
+	state->custom_parameters.scale = state->chunk_tile_length / 100.f; // Makes the scale reasonable for most world sizes
+	state->custom_parameters.lacunarity = 1.6f;
+	state->custom_parameters.persistence = 0.45f;
+	state->custom_parameters.elevation_power = 3.f;
+	state->custom_parameters.y_scale = 75.f;
+	state->custom_parameters.max_octaves = 16;
+	state->custom_parameters.water_height = 3.f * state->custom_parameters.scale;
+	state->custom_parameters.sand_height = 4.f * state->custom_parameters.scale;
+	state->custom_parameters.snow_height = 200.f * state->custom_parameters.scale;
+	state->custom_parameters.ambient_strength = 1.f;
+	state->custom_parameters.diffuse_strength = 0.3f;
+	state->custom_parameters.specular_strength = 0.75f;
+	state->custom_parameters.light_colour = { 1.f, 0.8f, 0.7f };
+	state->custom_parameters.grass_colour = { 0.15f, 0.23f, 0.13f };
+	state->custom_parameters.sand_colour = { 0.8f, 0.81f, 0.55f };
+	state->custom_parameters.snow_colour = { 0.8f, 0.8f, 0.8f };
+	state->custom_parameters.slope_colour = { 0.7f, 0.67f, 0.56f };
+	state->custom_parameters.water_colour = { .2f, .2f, 0.4f };
+	state->custom_parameters.skybox_colour = { 0.65f, 0.65f, 1.f };
+	state->custom_parameters.tree_count = 0;
+	state->custom_parameters.tree_min_height = state->custom_parameters.sand_height;
+	state->custom_parameters.tree_max_height = state->custom_parameters.snow_height;
+	state->custom_parameters.max_trees = 10000;
+
+	CopyMemory(&state->green_plains_parameters, &state->custom_parameters, sizeof(world_generation_parameters));
+	state->custom_parameters.elevation_power = 2.5f;
+	state->green_plains_parameters.y_scale = 20.;
+	state->green_plains_parameters.lacunarity = 1.6f;
+
+	CopyMemory(&state->rugged_desert_parameters, &state->custom_parameters, sizeof(world_generation_parameters));
+	state->rugged_desert_parameters.persistence = 0.55f;
+	state->rugged_desert_parameters.lacunarity = 1.7f;
+	state->rugged_desert_parameters.y_scale = 50.f;
+	state->rugged_desert_parameters.sand_height = 500;
+	state->rugged_desert_parameters.water_height = 0;
+
+	CopyMemory(&state->harsh_mountains_parameters, &state->custom_parameters, sizeof(world_generation_parameters));
+	state->harsh_mountains_parameters.y_scale = 140.f;
+	state->harsh_mountains_parameters.lacunarity = 1.7f;
+	state->harsh_mountains_parameters.persistence = 0.51f;
+	state->harsh_mountains_parameters.elevation_power = 4.f;
+
+	state->params = &state->harsh_mountains_parameters;
+
+	state->trees = (V3*)my_malloc(memory, state->params->max_trees * sizeof V3);
 
 	generate_world(state, memory);
 

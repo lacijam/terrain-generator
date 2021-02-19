@@ -1,6 +1,8 @@
 #ifndef APP_H
 #define APP_H
 
+#include <thread>
+
 #include "types.h"
 #include "maths.h"
 #include "camera.h"
@@ -152,10 +154,13 @@ struct QuadIndices {
 };
 
 struct Chunk {
+    Vertex* vertices;
+    QuadIndices* lods;
+    u32 lod_index_count;
+    u64* lod_offsets;
+    u64 vertices_count;
     u32 x, y;
     u32 vbo, ebo;
-    QuadIndices *lods;
-    Vertex *vertices; // For collision
 };
 
 struct ExportSettings {
@@ -164,8 +169,8 @@ struct ExportSettings {
     bool32 lods;
 };
 
-struct LODData {
-    u32 details[32];
+struct LODSettings {
+    u32 *details;
     u32 max_details_count; // Size of the array
     u32 max_available_count; // Number of possible LODs for the chunk size.
     u32 details_in_use; // Current amount of LODs being used.
@@ -192,12 +197,13 @@ struct app_state {
 
     WaterFrameBuffers water_frame_buffers;
 
-    void* chunk_data;
-    u64 terrain_vertices_size;
-    u64 terrain_lods_size;
+    std::thread *generation_threads;
+
+    Vertex *perlin_noise_vertices;
+    QuadIndices* perlin_noise_mesh;
 
     u32 terrain_vao;
-    LODData lod_data;
+    LODSettings lod_settings;
     Chunk *chunks;
     Chunk* current_chunk;
     V3* trees;
@@ -205,6 +211,7 @@ struct app_state {
     u32 chunk_tile_length;
     u32 chunk_vertices_length;
     u32 world_width;
+    u32 world_area;
     u32 world_tile_length;
     V3 light_pos;
     
