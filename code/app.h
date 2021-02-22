@@ -58,12 +58,12 @@ struct world_generation_parameters {
     real32 persistence;
     real32 elevation_power;
     real32 y_scale;
-    real32 water_height;
     real32 sand_height;
     real32 snow_height;
     real32 ambient_strength;
     real32 diffuse_strength;
     real32 specular_strength; 
+    V3 water_pos;
     V3 grass_colour;
     V3 sand_colour;
     V3 snow_colour;
@@ -120,17 +120,13 @@ struct WaterShader {
 struct WaterFrameBuffers {
     static const u32 REFLECTION_WIDTH = 640;
 	static const u32 REFLECTION_HEIGHT = 360;
-
 	static const u32 REFRACTION_WIDTH = 1280;
 	static const u32 REFRACTION_HEIGHT = 720;
 
     u32 reflection_fbo;
     u32 reflection_texture;
-    u32 reflection_depth;
-
     u32 refraction_fbo;
     u32 refraction_texture;
-    u32 refraction_depth_texture;
 };
 
 struct RGB {
@@ -153,11 +149,20 @@ struct QuadIndices {
 	u32 i[6];
 };
 
+struct LODDataInfo {
+    QuadIndices *quads;
+    u32 quads_count;
+    u64 data_offset;
+};
+
 struct Chunk {
     Vertex* vertices;
+    Vertex* optimized_vertices;
+    bool32* searched; // Used to check if a vertex has been checned when optimizing.
     QuadIndices* lods;
-    u32 lod_index_count;
-    u64* lod_offsets;
+    LODDataInfo *lod_data_infos;
+    u64 lod_indices_count;
+    V3 world_pos;
     u64 vertices_count;
     u32 x, y;
     u32 vbo, ebo;
@@ -199,10 +204,6 @@ struct app_state {
 
     std::thread *generation_threads;
 
-    Vertex *perlin_noise_vertices;
-    QuadIndices* perlin_noise_mesh;
-
-    u32 terrain_vao;
     LODSettings lod_settings;
     Chunk *chunks;
     Chunk* current_chunk;
@@ -215,7 +216,7 @@ struct app_state {
     u32 world_tile_length;
     V3 light_pos;
     
-    u32 simple_vao, quad_vbo, quad_ebo;
+    u32 triangle_vao, quad_vbo, quad_ebo;
 
     bool32 wireframe;
     bool32 flying;

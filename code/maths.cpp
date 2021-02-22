@@ -16,6 +16,13 @@ V3& operator-=(V3 &v, V3 w)
     return v;
 }
 
+bool32 operator==(V3 v, V3 w)
+{
+	return v.x == w.x
+		&& v.y == w.y
+		&& v.z == w.z;
+}
+
 V3 operator+(const V3 &v, const V3 &w)
 {
 	return {

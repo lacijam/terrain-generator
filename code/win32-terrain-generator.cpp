@@ -85,7 +85,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     ImGui::StyleColorsClassic();
 
 	app_memory memory = {};
-	memory.permenant_storage_size = Megabytes(4000);
+	memory.permenant_storage_size = Megabytes(2000);
 	memory.permenant_storage = VirtualAlloc(0, memory.permenant_storage_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	
 	if (memory.permenant_storage) {
@@ -146,7 +146,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			app_update_and_render(dt, &input, &memory, &window_info);
 
 			SwapBuffers(wglGetCurrentDC());
-			
+
 			LARGE_INTEGER finish, elapsed;
 			QueryPerformanceCounter(&finish);
 			elapsed.QuadPart = finish.QuadPart - start.QuadPart;
