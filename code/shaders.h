@@ -72,18 +72,18 @@ namespace Shaders {
         vec3 reflect_dir = reflect(-light_dir, v_nor);
         float spec = pow(max(dot(view_dir, reflect_dir), 0.f), 3);
         vec3 specular = specular_strength * spec * light_colour;
-
+        
+        vec4 stone_colour_rgba = vec4(0.3f, 0.3f, 0.3f, 1.f);
         vec4 grass_colour_rgba = vec4(grass_colour, 1.0f);
         vec4 slope_colour_rgba = vec4(slope_colour, 1.0f);
         vec4 snow_colour_rgba = vec4(snow_colour, 1.0f);
         vec4 sand_colour_rgba = vec4(sand_colour, 1.0f);
-        vec4 blended = mix(grass_colour_rgba, slope_colour_rgba, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
 
-        if (v_pos.y < sand_height) {
-            blended = mix(blended, sand_colour_rgba, 1.f - v_pos.y / sand_height);
-        } else if (v_pos.y > snow_height) {
-            blended = mix(blended, snow_colour_rgba, 0.03f * (v_pos.y - snow_height));
-        }
+        vec4 blended = mix(grass_colour_rgba, slope_colour_rgba, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
+        blended = mix(blended, stone_colour_rgba, min(v_pos.y / snow_height, 1.f));
+        //blended = mix(blended, snow_colour_rgba, min(v_pos.y / snow_height, 0.2f));
+
+        blended = mix(blended, sand_colour_rgba, 1.f - min(v_pos.y / sand_height, 1.f));
 
         frag = vec4(ambient + diffuse + specular, 1.f) * blended;
     }

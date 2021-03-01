@@ -5,6 +5,6 @@
 #include "maths.h"
 
 extern real32 perlin(V2 p);
-extern void init_rng();
+extern void seed_perlin();
 
 #endif

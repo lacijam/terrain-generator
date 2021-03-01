@@ -1,21 +1,23 @@
+#include <random>
+
 #include "perlin.h"
 
 static u8 P[512];
 
-// temporarily use rand()!!!
-#include <time.h>
-#include <stdlib.h>
 #include <windows.h>
 
-void init_rng()
+void seed_perlin()
 {
-    srand(time(NULL)); //sorry
+	std::random_device rd; 
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<> distr(0, 255);
+
     for (u32 i = 0; i < 256; i++) {
         P[i] = i;
     }
 
     for (u32 i = 0; i < 256; i++) {
-        const u8 index = rand() % 256;
+        const u8 index = distr(gen);
         const u8 temp = P[index];
         P[i] = P[index];
         P[index] = temp;
@@ -41,7 +43,7 @@ static V2 get_vector(u32 i)
         case 3: return { 1.f, -1.f };
     }
 
-    return {0};
+	return { 0, 0 };
 }
 
 real32 lerp(real32 t, real32 a, real32 b)

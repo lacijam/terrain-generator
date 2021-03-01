@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <functional>
+#include <random>
 
 #include "maths.h"
 #include "win32-opengl.h"
@@ -16,6 +17,9 @@
 
 #include "imgui-master/imgui.h"
 #include "imgui-master/imgui_impl_opengl3.h"
+
+static std::random_device rd;
+static std::mt19937 gen(rd());
 
 void* my_malloc(app_memory* memory, u64 size)
 {
@@ -30,7 +34,7 @@ void* my_malloc(app_memory* memory, u64 size)
 bool32 v3_is_parallel(V3* a, V3* b, real32 epsilon)
 {
 	real32 d = v3_dot(*a, *b);
-	return (abs(d) > 1.f - epsilon);
+	return (d >= 1.f - epsilon) || (d <= -1.f + epsilon);
 }
 
 static void app_generate_terrain_chunk(
@@ -39,6 +43,8 @@ static void app_generate_terrain_chunk(
 	, Chunk *chunk)
 {
 	chunk->vertices_count = state->chunk_vertices_length * state->chunk_vertices_length;
+
+	real32 water_bottom = state->params->water_pos.y * 0.9f;
 
 	for (u32 j = 0; j < state->chunk_vertices_length; j++) {
 		for (u32 i = 0; i < state->chunk_vertices_length; i++) {
@@ -69,10 +75,8 @@ static void app_generate_terrain_chunk(
 
 			real32 elevation = ((powf(octave_result, state->params->elevation_power)) * state->params->y_scale * state->params->scale);
 
-			if (elevation < state->params->water_pos.y * 0.1f) {
-				elevation = 0.f;
-			} else if (elevation < state->params->water_pos.y * 0.3f) {
-				elevation = floorf(elevation * 3) / 3;
+			if (elevation < water_bottom) {
+				elevation = water_bottom;
 			} else {
 				elevation = floorf(elevation * 100) / 100;
 			}
@@ -119,187 +123,164 @@ static void app_generate_terrain_chunk(
 		}
 	}
 
-	for (u32 i = 0; i < state->chunk_vertices_length * state->chunk_vertices_length; i++) {
-		chunk->searched[i] = 0;
-	}
-
 	u64 lod_offset = 0;
-
-	chunk->lod_data_infos[0].quads_count = 0;
 
 	real32 epsilon = 0.000001f;
 
-	// Create mesh with water optimization.
-	for (u32 j = 0; j < state->chunk_tile_length; j++) {
-		for (u32 i = 0; i < state->chunk_tile_length; i++) {
-			u32 index = j * state->chunk_vertices_length + i;
-			
-			if (chunk->searched[index]) {
-				continue;
-			}
-
-			u32 v0 = index;
-			u32 width, height;
-			width = height = 1;
-
-			if (chunk->vertices[index].pos.y < state->params->water_pos.y - epsilon) {
-				Vertex* a = &chunk->vertices[v0];
-
-				while (i + width < state->chunk_tile_length && chunk->vertices[v0 + width].pos.y < state->params->water_pos.y - epsilon) {
-					if (chunk->searched[v0 + width]) {
-						break;
-					}
-
-					Vertex* b = &chunk->vertices[v0 + width];
-					if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-						break;
-					}
-
-					if (v0 + width < state->chunk_vertices_length) {
-						a = &chunk->vertices[v0 + width + 1];
-						if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-							break;
-						}
-					}
-
-					if (j > 0) {
-						a = &chunk->vertices[(j - 1) * state->chunk_vertices_length + i + width];
-						if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-							break;
-						}
-					}
-
-					if (j < state->chunk_vertices_length) {
-						a = &chunk->vertices[(j + 1) * state->chunk_vertices_length + i + width];
-						if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-							break;
-						}
-					}
-
-					chunk->searched[v0 + width] = true;
-
-					width++;
-				}
-
-				bool32 row_failed = false;
-				while (j + height < state->chunk_tile_length && !row_failed) {
-					for (u32 x = i; x < i + width; x++) {
-						u32 index = (j + height) * state->chunk_vertices_length + x;
-
-						if (chunk->vertices[index].pos.y > state->params->water_pos.y - epsilon) {
-							row_failed = true;
-							break;
-						}
-
-						if (chunk->searched[index]) {
-							row_failed = true;
-							break;
-						}
-
-						Vertex* b = &chunk->vertices[index];
-						
-						real32 d = 0;
-
-						if (x > 0) {
-							a = &chunk->vertices[index - 1];
-							if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-								row_failed = true;
-								break;
-							}
-						}
-
-						if (x + 1 < state->chunk_vertices_length) {
-							a = &chunk->vertices[index + 1];
-							if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-								row_failed = true;
-								break;
-							}
-						}
-
-						a = &chunk->vertices[(j + height - 1) * state->chunk_vertices_length + x];
-						if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-							row_failed = true;
-							break;
-						}
-
-						a = &chunk->vertices[(j + height + 1) * state->chunk_vertices_length + x];
-						if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
-							row_failed = true;
-							break;
-						}
-					}
-
-					if (row_failed) {
-						break;
-					}
-
-					for (u32 x = i; x < i + width; x++) {
-						chunk->searched[(j + height) * state->chunk_vertices_length + x] = true;
-					}
-
-					height++;
-				}
-			} 
-
-			u32 v1 = v0 + width;
-			u32 v2 = v0 + (height * state->chunk_vertices_length);
-			u32 v3 = v2 + width;
-
-			chunk->lods[chunk->lod_data_infos[0].quads_count].i[0] = v3; // Top-right
-			chunk->lods[chunk->lod_data_infos[0].quads_count].i[1] = v1; // Bottom-right
-			chunk->lods[chunk->lod_data_infos[0].quads_count].i[2] = v0; // Bottom-left
-			chunk->lods[chunk->lod_data_infos[0].quads_count].i[3] = v2; // Top-left
-			chunk->lods[chunk->lod_data_infos[0].quads_count].i[4] = v3;
-			chunk->lods[chunk->lod_data_infos[0].quads_count].i[5] = v0;
-
-			chunk->lod_data_infos[0].quads_count++;
-		}
-	}
-
-	chunk->lod_data_infos[0].quads = &chunk->lods[lod_offset];
-	chunk->lod_data_infos[0].data_offset = lod_offset;
-
-	printf("Indices: %d\n", chunk->lod_data_infos[0].quads_count * 6);
-
-	lod_offset += chunk->lod_data_infos[0].quads_count;
-
-	/*
-	for (u32 lod_detail_index = 1; lod_detail_index < state->lod_settings.max_available_count; lod_detail_index++) {
+	for (u32 lod_detail_index = 0; lod_detail_index < state->lod_settings.max_available_count; lod_detail_index++) {
 		const u32 detail = state->lod_settings.details[lod_detail_index];
 
-		
-
 		u32 indices_length = state->chunk_vertices_length - detail;
-		u32 lod_data_row_width = state->chunk_tile_length / detail;
 
+		chunk->lod_data_infos[lod_detail_index].quads_count = 0;
+
+		u32 v0, v1, v2, v3;
+
+		const u32 max_width = state->chunk_tile_length;
+		const u32 max_height = state->chunk_tile_length;
+
+		for (u32 i = 0; i < state->chunk_vertices_length * state->chunk_vertices_length; i++) {
+			chunk->searched[i] = 0;
+		}
+
+		// Create mesh for vertices above water
 		for (u32 j = 0; j < indices_length; j += detail) {
-			u32 lod_data_row = j / detail;
-
 			for (u32 i = 0; i < indices_length; i += detail) {
-				u32 data_pos = lod_offset + (lod_data_row * lod_data_row_width + (i / detail));
+				u32 index = j * state->chunk_vertices_length + i;
 
-				u32 v0 = j * state->chunk_vertices_length + i;
-				u32 v1 = v0 + detail;
-				u32 v2 = v0 + (detail * state->chunk_vertices_length);
-				u32 v3 = v2 + detail;
+				if (chunk->vertices[index].pos.y > water_bottom + epsilon) {
+					v1 = v2 = v3 = 0;
+					v0 = index;
 
-				chunk->lods[data_pos].i[0] = v3; // Top-right
-				chunk->lods[data_pos].i[1] = v1; // Bottom-right
-				chunk->lods[data_pos].i[2] = v0; // Bottom-left
-				chunk->lods[data_pos].i[3] = v2; // Top-left
-				chunk->lods[data_pos].i[4] = v3;
-				chunk->lods[data_pos].i[5] = v0;
+					v1 = v0 + detail;
+					v2 = v0 + (detail * state->chunk_vertices_length);
+					v3 = v2 + detail;
+
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[0] = v3; // Top-right
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[1] = v1; // Bottom-right
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[2] = v0; // Bottom-left
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[3] = v2; // Top-left
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[4] = v3;
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[5] = v0;
+
+					chunk->lod_data_infos[lod_detail_index].quads_count++;
+				}
+			}
+		}
+
+		// Optimize underwater terrain.
+		for (u32 j = 0; j < state->chunk_tile_length; j++) {
+			for (u32 i = 0; i < state->chunk_tile_length; i++) {
+				u32 index = j * state->chunk_vertices_length + i;
+
+				if (chunk->searched[index]) {
+					continue;
+				}
+
+				v1 = v2 = v3 = 0;
+				v0 = index;
+
+				u32 width, height;
+				width = height = 1;
+
+				u32 largest_width = width;
+				u32 largest_height = height;
+
+				if (chunk->vertices[index].pos.y <= water_bottom + epsilon) {
+					Vertex* a = &chunk->vertices[v0];
+
+					while (
+						width <= max_width
+						&& i + width < state->chunk_tile_length
+						&& chunk->vertices[v0 + width].pos.y <= water_bottom + epsilon
+						&& !chunk->searched[v0 + width]) {
+
+						Vertex* b = &chunk->vertices[v0 + width];
+						if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
+							break;
+						}
+
+						width += 1;
+					}
+
+					u32 largest_area = width * height;
+
+					for (u32 w = width; w > 0; w--) {
+						bool32 row_failed = false;
+						height = 1;
+						while (
+							height <= max_height
+							&& j + height < state->chunk_tile_length
+							&& !row_failed) {
+							for (u32 x = i; x < i + w; x += 1) {
+								u32 index = (j + height) * state->chunk_vertices_length + x;
+
+								if (chunk->vertices[index].pos.y > water_bottom + epsilon) {
+									row_failed = true;
+									break;
+								}
+
+								if (chunk->searched[index]) {
+									row_failed = true;
+									break;
+								}
+
+								Vertex* b = &chunk->vertices[index];
+
+								real32 d = 0;
+
+								if (x + 1 < state->chunk_vertices_length) {
+									a = &chunk->vertices[index + 1];
+									if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
+										row_failed = true;
+										break;
+									}
+								}
+							}
+
+							if (w * height > largest_area) {
+								largest_area = w * height;
+								largest_width = w;
+								largest_height = height;
+							}
+
+							if (row_failed) {
+								break;
+							}
+
+							height += 1;
+						}
+					}
+
+					for (u32 y = j; y < j + largest_height; y++) {
+						for (u32 x = i; x < i + largest_width; x++) {
+							chunk->searched[y * state->chunk_vertices_length + x] = true;
+						}
+					}
+
+					v1 = v0 + largest_width;
+					v2 = v0 + (largest_height * state->chunk_vertices_length);
+					v3 = v2 + largest_width;
+
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[0] = v3; // Top-right
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[1] = v1; // Bottom-right
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[2] = v0; // Bottom-left
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[3] = v2; // Top-left
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[4] = v3;
+					chunk->lods[lod_offset + chunk->lod_data_infos[lod_detail_index].quads_count].i[5] = v0;
+
+					chunk->lod_data_infos[lod_detail_index].quads_count++;
+				}
 			}
 		}
 
 		chunk->lod_data_infos[lod_detail_index].quads = &chunk->lods[lod_offset];
 		chunk->lod_data_infos[lod_detail_index].data_offset = lod_offset;
-		chunk->lod_data_infos[lod_detail_index].quads_count = lod_data_row_width * lod_data_row_width;
 
-		lod_offset += lod_data_row_width * lod_data_row_width;
-	}*/
+		lod_offset += chunk->lod_data_infos[lod_detail_index].quads_count;
+	}
 
-	chunk->lod_indices_count = lod_offset;
+	chunk->lod_indices_count = lod_offset * 6;
 }
 
 static u32 create_shader(const char *vertex_shader_source, const char *fragment_shader_source)
@@ -470,12 +451,12 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 		chunk_lod_detail = distance;
 	}
 
-	const u32 lod_indices_area = chunk->lod_data_infos[0].quads_count * 6;
-	const u64 chunk_offset_in_bytes = chunk->lod_data_infos[0].data_offset * sizeof(QuadIndices);
+	const u32 lod_indices_area = chunk->lod_data_infos[chunk_lod_detail].quads_count * 6;
+	const u64 chunk_offset_in_bytes = chunk->lod_data_infos[chunk_lod_detail].data_offset * sizeof(QuadIndices);
 
 	// Find the offset of the LOD data we want to use be looping through every LOD level
 	// before the one we want and calculating the sum of the total size.
-	glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(0));
+	glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(chunk_offset_in_bytes));
 
 	if (state->wireframe) {
 		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
@@ -485,7 +466,7 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 		glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat*)&grid_colour);
 		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat*)&grid_colour);
 		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat*)&grid_colour);
-		glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(0));
+		glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(chunk_offset_in_bytes));
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
 }
@@ -496,6 +477,10 @@ static void app_render_lights_and_features(app_state *state)
 	glUseProgram(state->simple_shader.program);
 
 	glBindVertexArray(state->triangle_vao);
+	glBindBuffer(GL_ARRAY_BUFFER, state->quad_vbo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->quad_ebo);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
 
 	real32 model[16];
 	mat4_identity(model);
@@ -504,28 +489,21 @@ static void app_render_lights_and_features(app_state *state)
 	glUniformMatrix4fv(state->simple_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
 	glUniformMatrix4fv(state->simple_shader.view, 1, GL_FALSE, state->cur_cam.view);
 	glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
-
-	glUseProgram(state->simple_shader.program);
-	glBindVertexArray(state->triangle_vao);
-
-	glUniformMatrix4fv(state->simple_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
-	glUniformMatrix4fv(state->simple_shader.view, 1, GL_FALSE, state->cur_cam.view);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	// End of lights
 
 	// Features
 	glDisable(GL_CULL_FACE);
 
 	for (u32 i = 0; i < state->params->tree_count; i++) {
-		if (state->trees[i].y <= state->params->tree_min_height || state->trees[i].y > state->params->tree_max_height) {
+		if (state->trees[i].y < state->params->tree_min_height || state->trees[i].y > state->params->tree_max_height) {
 			continue;
 		}
 
 		const u32 scale = 6.f * state->params->scale;
 
-		real32 model[16];
 		mat4_identity(model);
-		mat4_translate(model, state->trees[i].x, state->trees[i].y + scale / 2, state->trees[i].z);
+		mat4_translate(model, state->trees[i].x, state->trees[i].y, state->trees[i].z);
 		mat4_scale(model, 1.f, scale, 1.f);
 		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -542,31 +520,32 @@ static void app_render_lights_and_features(app_state *state)
 
 static void generate_trees(app_state* state)
 {
-	u32 num_vertices = state->chunk_vertices_length;
-
 	for (u32 i = 0; i < state->params->max_trees; i++) {
 		real32 x, y, z;
-		y = 0;
+		x = y = z = -1;
+
 		u32 attempt = 0;
 		while (y < state->params->tree_min_height || y > state->params->tree_max_height) {
-			if (attempt++ > 50) {
+			if (++attempt > 50) {
 				break;
 			}
 
-			Chunk* chunk;
-			const u32 chunk_x = rand() % (state->world_width);
-			const u32 chunk_z = rand() % (state->world_width);
-			chunk = &state->chunks[chunk_z * state->world_width + chunk_x];
+			std::uniform_int_distribution<> chunk_index(0, state->world_area - 1);
 
-			Vertex* v = &chunk->vertices[(rand() % state->chunk_tile_length) * num_vertices + (rand() % state->chunk_tile_length)];
-			x = chunk_x * state->chunk_tile_length + v->pos.x;
+			Chunk* chunk = &state->chunks[chunk_index(gen)];
+
+			std::uniform_int_distribution<> vertex_index(0, chunk->vertices_count - 1);
+
+			Vertex* v = &chunk->vertices[vertex_index(gen)];
+			x = chunk->x * state->chunk_vertices_length + v->pos.x;
 			y = v->pos.y;
-			z = chunk_z * state->chunk_tile_length + v->pos.z;
+			z = chunk->y * state->chunk_vertices_length + v->pos.z;
+			state->trees[i].x = x;
+			state->trees[i].y = y;
+			state->trees[i].z = z;
 		}
 
-		state->trees[i].x = x;
-		state->trees[i].y = y;
-		state->trees[i].z = z;
+
 	}
 }
 
@@ -584,6 +563,7 @@ static void generate_world(app_state* state, app_memory* memory)
 
 	glBindVertexArray(state->triangle_vao);
 
+	u64 quads_sum = 0;
 	for (u32 j = 0; j < state->world_width; j++) {
 		for (u32 i = 0; i < state->world_width; i++) {
 			u32 index = j * state->world_width + i;
@@ -596,11 +576,18 @@ static void generate_world(app_state* state, app_memory* memory)
 			glEnableVertexAttribArray(0);
 
 			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk->ebo);
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, chunk->lod_indices_count * sizeof(QuadIndices), chunk->lods, GL_STATIC_DRAW);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, chunk->lod_indices_count * sizeof(u32), chunk->lods, GL_STATIC_DRAW);
 			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
 			glEnableVertexAttribArray(1);
+
+			quads_sum += chunk->lod_data_infos[0].quads_count;
 		}
 	}
+
+	const u64 total_possible_quads = state->world_area * state->chunk_tile_length * state->chunk_tile_length;
+	printf("Total quads if no optimisation: %llu\n", total_possible_quads);
+	printf("Optimised quads: %llu\n", quads_sum);
+	printf("Optimisation %: %.2f percent\n", ((real64)quads_sum / total_possible_quads) * 100);
 
 	generate_trees(state);
 }
@@ -826,7 +813,7 @@ static void export_terrain_as_obj(app_state* state)
 				mat4_translate(model, x * state->chunk_tile_length, 0, y * state->chunk_tile_length);
 				glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
 				
-				glDrawElements(GL_TRIANGLES, (state->chunk_tile_length * state->chunk_tile_length * 6), GL_UNSIGNED_INT, (void*)(0));
+				glDrawElements(GL_TRIANGLES, state->chunks[index].lod_data_infos[0].quads_count * 6, GL_UNSIGNED_INT, (void*)(0));
 			}
 		}
 		
@@ -936,7 +923,7 @@ static void app_render(app_state *state, app_memory *memory)
 
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	// End of water
-
+	
 	// UI
 	ImGui::NewFrame();
 
@@ -1076,7 +1063,7 @@ static void app_render(app_state *state, app_memory *memory)
 	}
 
 	if (ImGui::TreeNode("Heightmap")) {
-		ImGui::SliderFloat("water height", &state->params->water_pos.y, -50.f, 300.f, "%.2f", ImGuiSliderFlags_None);
+		regenerate_chunks |= ImGui::SliderFloat("water height", &state->params->water_pos.y, -50.f, 300.f, "%.2f", ImGuiSliderFlags_None);
 		ImGui::SliderFloat("sand height", &state->params->sand_height, 0.f, 300.f, "%.2f", ImGuiSliderFlags_None);
 		ImGui::SliderFloat("snow height", &state->params->snow_height, 0.f, 2000.f, "%.2f", ImGuiSliderFlags_None);
 		ImGui::TreePop();
@@ -1111,8 +1098,6 @@ static void app_render(app_state *state, app_memory *memory)
 void app_init(app_state* state, app_memory* memory)
 {
 	memory->free_offset = sizeof(app_state);
-
-	init_rng();
 
 	glGenVertexArrays(1, &state->triangle_vao);
 	glBindVertexArray(state->triangle_vao);
@@ -1183,14 +1168,14 @@ void app_init(app_state* state, app_memory* memory)
 	state->chunk_tile_length = 256;
 	state->chunk_vertices_length = state->chunk_tile_length + 1;
 	state->chunk_count = 0;
-	state->world_width = 3;
+	state->world_width = 2;
 	state->world_area = state->world_width * state->world_width;
 	state->world_tile_length = state->chunk_tile_length * state->world_width;
 	state->generation_threads = (std::thread*)my_malloc(memory, state->world_area * sizeof(std::thread));
 	// ---End of terrain data.
 
 	// ---LOD settings
-	state->lod_settings.max_details_count = 32;
+	state->lod_settings.max_details_count = 16;
 	state->lod_settings.details = (u32*)my_malloc(memory, state->lod_settings.max_details_count * sizeof(u32));
 
 	// LOD detail levels have to be powers of 2 or everything blows up.
@@ -1215,13 +1200,6 @@ void app_init(app_state* state, app_memory* memory)
 	init_water_data(state);	
 	init_terrain_texture_map_data(state, memory);
 
-	// Check we have enough space to vertices and LODS.
-	u64 world_vertex_size = state->world_area * (state->chunk_vertices_length) * (state->chunk_vertices_length) * sizeof Vertex;
-	u64 world_indices_size = 0;
-	for (u32 i = 0; i < state->lod_settings.max_available_count; i++) {
-		world_indices_size += state->world_area * (state->chunk_tile_length / state->lod_settings.details[i]) * (state->chunk_tile_length / state->lod_settings.details[i]) * sizeof QuadIndices;
-	}
-
 	state->chunks = (Chunk*)my_malloc(memory, state->world_area * sizeof(Chunk));
 
 	for (u32 j = 0; j < state->world_width; j++) {
@@ -1232,13 +1210,7 @@ void app_init(app_state* state, app_memory* memory)
 			glGenBuffers(1, &state->chunks[index].ebo);
 
 			u64 chunk_vertices_size = (state->chunk_vertices_length) * (state->chunk_vertices_length) * sizeof(Vertex);
-
-			u64 chunk_lods_size = 0;
-			for (u32 lod_detail_index = 0; lod_detail_index < state->lod_settings.max_available_count; lod_detail_index++) {
-				const u32 detail = state->lod_settings.details[lod_detail_index];
-				chunk_lods_size += (state->chunk_tile_length / detail) * (state->chunk_tile_length / detail) * sizeof(QuadIndices);
-			}
-
+			u64 chunk_lods_size = state->lod_settings.max_available_count * state->chunk_tile_length * state->chunk_tile_length * sizeof(QuadIndices);
 			u32 vertices_count = (state->chunk_vertices_length) * (state->chunk_vertices_length);
 
 			state->chunks[index].vertices_count = 0;
@@ -1257,7 +1229,7 @@ void app_init(app_state* state, app_memory* memory)
 	}
 
 	// --- Generation parameters
-	state->custom_parameters.scale = state->chunk_tile_length / 100.f; // Makes the scale reasonable for most world sizes
+	state->custom_parameters.scale = state->chunk_tile_length / 50.f; // Makes the scale reasonable for most world sizes
 	state->custom_parameters.lacunarity = 1.6f;
 	state->custom_parameters.persistence = 0.45f;
 	state->custom_parameters.elevation_power = 3.f;
@@ -1270,13 +1242,13 @@ void app_init(app_state* state, app_memory* memory)
 	state->custom_parameters.snow_height = 200.f * state->custom_parameters.scale;
 	state->custom_parameters.ambient_strength = 1.f;
 	state->custom_parameters.diffuse_strength = 0.3f;
-	state->custom_parameters.specular_strength = 0.75f;
+	state->custom_parameters.specular_strength = 0.35f;
 	state->custom_parameters.light_colour = { 1.f, 0.8f, 0.7f };
 	state->custom_parameters.grass_colour = { 0.15f, 0.23f, 0.13f };
 	state->custom_parameters.sand_colour = { 0.8f, 0.81f, 0.55f };
 	state->custom_parameters.snow_colour = { 0.8f, 0.8f, 0.8f };
-	state->custom_parameters.slope_colour = { 0.7f, 0.67f, 0.56f };
-	state->custom_parameters.water_colour = { .2f, .2f, 0.4f };
+	state->custom_parameters.slope_colour = { 0.75f, 0.72f, 0.61f };
+	state->custom_parameters.water_colour = { .07f, .07f, 0.16f };
 	state->custom_parameters.skybox_colour = { 0.65f, 0.65f, 1.f };
 	state->custom_parameters.tree_count = 0;
 	state->custom_parameters.tree_min_height = state->custom_parameters.sand_height;
@@ -1305,7 +1277,8 @@ void app_init(app_state* state, app_memory* memory)
 	// ---End of generation parameters
 
 	state->trees = (V3*)my_malloc(memory, state->params->max_trees * sizeof V3);
-
+	
+	seed_perlin();
 	generate_world(state, memory);
 
 	camera_init(&state->cur_cam);
@@ -1357,7 +1330,7 @@ void app_handle_input(real32 dt, app_state* state, app_memory *memory, app_keybo
 	}
 
 	if (keyboard->reset.toggled) {
-		init_rng();
+		seed_perlin();
 		generate_world(state, memory);
 	}
 
