@@ -2,12 +2,10 @@
 
 #include <assert.h>
 #include <stdlib.h>
-#include <mutex>
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <functional>
-#include <random>
 
 #include "maths.h"
 #include "win32-opengl.h"
@@ -18,111 +16,137 @@
 #include "imgui-master/imgui.h"
 #include "imgui-master/imgui_impl_opengl3.h"
 
-static std::random_device rd;
-static std::mt19937 gen(rd());
+static const u32 MAX_RESOLUTION = 16384;
+static const char *texture_resolutions[7] = { "256", "512", "1024", "2048", "4096", "8192", "16384" };
+static const char *specular_resolutions[7] = { "256", "512", "1024", "2048", "4096", "8192", "16384" };
 
-void* my_malloc(app_memory* memory, u64 size)
+void *my_malloc(app_memory *memory, u64 size)
 {
 #ifdef _DEBUG
 	assert(memory->free_offset + size < memory->permenant_storage_size);
 #endif
-	void* p = (void*)((char*)(memory->permenant_storage) + memory->free_offset);
+	void *p = (void *)((char *)(memory->permenant_storage) + memory->free_offset);
 	memory->free_offset += size;
 	return p;
 }
 
-bool32 v3_is_parallel(V3* a, V3* b, real32 epsilon)
+bool32 v3_is_parallel(V3 *a, V3 *b, real32 epsilon)
 {
 	real32 d = v3_dot(*a, *b);
 	return (d >= 1.f - epsilon) || (d <= -1.f + epsilon);
 }
 
+void init_lod_detail_levels(LODSettings *lod_settings, u32 chunk_tile_length)
+{
+	u32 detail = 1;
+	u32 multiplier = pow(2, lod_settings->detail_multiplier);
+
+	for (u32 i = 0; i < lod_settings->max_details_count; i++) {
+		lod_settings->details[i] = detail;
+		detail *= multiplier;
+	}
+
+	// Find the most LODs possible for the chunk size.
+	for (u32 i = 0; i < lod_settings->max_details_count; i++) {
+		lod_settings->max_available_count = i;
+
+		if (lod_settings->details[i] > chunk_tile_length) {
+			break;
+		}
+	}
+
+	lod_settings->details_in_use = lod_settings->max_available_count;
+}
+
 static void app_generate_terrain_chunk(
 	app_state *state
 	, app_memory *memory
-	, Chunk *chunk)
+	, Chunk *chunk
+	, bool32 just_lods)
 {
-	chunk->vertices_count = state->chunk_vertices_length * state->chunk_vertices_length;
-
 	real32 water_bottom = state->params->water_pos.y * 0.9f;
 
-	for (u32 j = 0; j < state->chunk_vertices_length; j++) {
-		for (u32 i = 0; i < state->chunk_vertices_length; i++) {
-			u32 index = j * state->chunk_vertices_length + i;
+	if (!just_lods) {
+		for (u32 j = 0; j < state->chunk_vertices_length; j++) {
+			for (u32 i = 0; i < state->chunk_vertices_length; i++) {
+				u32 index = j * state->chunk_vertices_length + i;
 
-			chunk->searched[index] = 0;
+				chunk->searched[index] = 0;
 
-			real32 x = (chunk->x + (real32)i / state->chunk_tile_length) / state->params->scale;
-			real32 y = (chunk->y + (real32)j / state->chunk_tile_length) / state->params->scale;
+				real32 x = (chunk->x + (real32)i / state->chunk_tile_length) / state->params->scale;
+				real32 y = (chunk->y + (real32)j / state->chunk_tile_length) / state->params->scale;
 
-			real32 total = 0;
-			real32 frequency = 1;
-			real32 amplitude = 1;
-			real32 total_amplitude = 0;
+				real32 total = 0;
+				real32 frequency = 1;
+				real32 amplitude = 1;
+				real32 total_amplitude = 0;
 
-			for (u32 octave = 0; octave < state->params->max_octaves; octave++) {
-				total += (0.5f + perlin({ (real32)(frequency * x), (real32)(frequency * y) })) * amplitude;
-				total_amplitude += amplitude;
-				amplitude *= state->params->persistence;
-				frequency *= state->params->lacunarity;
+				for (u32 octave = 0; octave < state->params->max_octaves; octave++) {
+					total += (0.5f + perlin({ (real32)(frequency * x), (real32)(frequency * y) })) * amplitude;
+					total_amplitude += amplitude;
+					amplitude *= state->params->persistence;
+					frequency *= state->params->lacunarity;
+				}
+
+				real32 octave_result = total / total_amplitude;
+
+				if (octave_result < 0) {
+					octave_result = 0;
+				}
+
+				real32 elevation = ((powf(octave_result, state->params->elevation_power)) * state->params->y_scale * state->params->scale);
+
+				if (elevation < water_bottom) {
+					elevation = water_bottom;
+				}
+				else {
+					elevation = floorf(elevation * 100) / 100;
+				}
+
+				chunk->vertices[index].pos.x = i;
+				chunk->vertices[index].pos.y = elevation;
+				chunk->vertices[index].pos.z = j;
+				chunk->vertices[index].nor = {};
 			}
+		}
 
-			real32 octave_result = total / total_amplitude;
+		// Calculate normals
+		for (u32 j = 0; j < state->chunk_tile_length; j++) {
+			for (u32 i = 0; i < state->chunk_tile_length; i++) {
+				u32 index = j * state->chunk_tile_length + i;
 
-			if (octave_result < 0) {
-				octave_result = 0;
+				u32 v0 = j * state->chunk_vertices_length + i;
+				u32 v1 = v0 + 1;
+				u32 v2 = v0 + (1 * state->chunk_vertices_length);
+				u32 v3 = v2 + 1;
+
+				Vertex *a = &chunk->vertices[v3];
+				Vertex *b = &chunk->vertices[v1];
+				Vertex *c = &chunk->vertices[v0];
+				Vertex *d = &chunk->vertices[v2];
+
+				V3 cp = v3_cross(b->pos - a->pos, c->pos - a->pos);
+				a->nor += cp;
+				b->nor += cp;
+				c->nor += cp;
+
+				cp = v3_cross(a->pos - d->pos, c->pos - d->pos);
+				d->nor += cp;
+				a->nor += cp;
+				c->nor += cp;
 			}
+		}
 
-			real32 elevation = ((powf(octave_result, state->params->elevation_power)) * state->params->y_scale * state->params->scale);
-
-			if (elevation < water_bottom) {
-				elevation = water_bottom;
-			} else {
-				elevation = floorf(elevation * 100) / 100;
+		// // Average sum of normals for each vertex.
+		for (u32 j = 0; j < state->chunk_vertices_length; j++) {
+			for (u32 i = 0; i < state->chunk_vertices_length; i++) {
+				u32 index = j * (state->chunk_vertices_length) + i;
+				chunk->vertices[index].nor = v3_normalise(chunk->vertices[index].nor);
 			}
-
-			chunk->vertices[index].pos.x = i;
-			chunk->vertices[index].pos.y = elevation;
-			chunk->vertices[index].pos.z = j;
-			chunk->vertices[index].nor = {};
 		}
 	}
 
-	// Calculate normals
-	for (u32 j = 0; j < state->chunk_tile_length; j++) {
-		for (u32 i = 0; i < state->chunk_tile_length; i++) {
-			u32 index = j * state->chunk_tile_length + i;
-			
-			u32 v0 = j * state->chunk_vertices_length + i;
-			u32 v1 = v0 + 1;
-			u32 v2 = v0 + (1 * state->chunk_vertices_length);
-			u32 v3 = v2 + 1;
-
-			Vertex *a = &chunk->vertices[v3];
-			Vertex *b = &chunk->vertices[v1];
-			Vertex *c = &chunk->vertices[v0];
-			Vertex* d = &chunk->vertices[v2];
-
-			V3 cp = v3_cross(b->pos - a->pos, c->pos - a->pos);
-			a->nor += cp;
-			b->nor += cp;
-			c->nor += cp;
-
-			cp = v3_cross(a->pos - d->pos, c->pos - d->pos);
-			d->nor += cp;
-			a->nor += cp;
-			c->nor += cp;
-		}
-	}
-
-	// // Average sum of normals for each vertex.
-	for (u32 j = 0; j < state->chunk_vertices_length; j++) {
-		for (u32 i = 0; i < state->chunk_vertices_length; i++) {
-			u32 index = j * (state->chunk_vertices_length) + i;
-			chunk->vertices[index].nor = v3_normalise(chunk->vertices[index].nor);
-		}
-	}
-
+	// Create lods.
 	u64 lod_offset = 0;
 
 	real32 epsilon = 0.000001f;
@@ -187,7 +211,7 @@ static void app_generate_terrain_chunk(
 				u32 largest_height = height;
 
 				if (chunk->vertices[index].pos.y <= water_bottom + epsilon) {
-					Vertex* a = &chunk->vertices[v0];
+					Vertex *a = &chunk->vertices[v0];
 
 					while (
 						width <= max_width
@@ -195,7 +219,7 @@ static void app_generate_terrain_chunk(
 						&& chunk->vertices[v0 + width].pos.y <= water_bottom + epsilon
 						&& !chunk->searched[v0 + width]) {
 
-						Vertex* b = &chunk->vertices[v0 + width];
+						Vertex *b = &chunk->vertices[v0 + width];
 						if (!v3_is_parallel(&a->nor, &b->nor, epsilon)) {
 							break;
 						}
@@ -225,7 +249,7 @@ static void app_generate_terrain_chunk(
 									break;
 								}
 
-								Vertex* b = &chunk->vertices[index];
+								Vertex *b = &chunk->vertices[index];
 
 								real32 d = 0;
 
@@ -292,8 +316,8 @@ static u32 create_shader(const char *vertex_shader_source, const char *fragment_
 	glAttachShader(program_id, vertex_shader);
 	glAttachShader(program_id, fragment_shader);
 	glLinkProgram(program_id);
-    glUseProgram(program_id);
-	
+	glUseProgram(program_id);
+
 	glDeleteShader(vertex_shader);
 	glDeleteShader(fragment_shader);
 
@@ -341,7 +365,7 @@ static void create_terrain_texture_map_texture(TextureMapData *texture_map_data)
 		glDeleteTextures(1, &texture_map_data->texture);
 		glDeleteFramebuffers(1, &texture_map_data->fbo);
 	}
-	
+
 	glGenFramebuffers(1, &texture_map_data->fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, texture_map_data->fbo);
 	glDrawBuffer(GL_COLOR_ATTACHMENT0);
@@ -349,18 +373,27 @@ static void create_terrain_texture_map_texture(TextureMapData *texture_map_data)
 	texture_map_data->texture = create_framebuffer_texture(texture_map_data->resolution, texture_map_data->resolution);
 }
 
-static void init_terrain_texture_map_data(app_state* state, app_memory *memory)
+static void init_terrain_texture_maps(app_state *state, app_memory *memory)
 {
-	u32 pixels_size = state->texture_map_data.MAX_RESOLUTION * state->texture_map_data.MAX_RESOLUTION * sizeof(RGB);
-	state->texture_map_data.pixels = (RGB*)my_malloc(memory, pixels_size);
+	u32 pixels_size = MAX_RESOLUTION * MAX_RESOLUTION * sizeof(RGB);
+	state->texture_map_data.pixels = (RGB *)my_malloc(memory, pixels_size);
 
 	glGenFramebuffers(1, &state->texture_map_data.fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, state->texture_map_data.fbo);
 	glDrawBuffer(GL_COLOR_ATTACHMENT0);
 
 	state->texture_map_data.resolution = 512;
-
 	create_terrain_texture_map_texture(&state->texture_map_data);
+
+	pixels_size = MAX_RESOLUTION * MAX_RESOLUTION * sizeof(RGB);
+	state->specular_map_data.pixels = (RGB *)my_malloc(memory, pixels_size);
+
+	glGenFramebuffers(1, &state->specular_map_data.fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, state->specular_map_data.fbo);
+	glDrawBuffer(GL_COLOR_ATTACHMENT0);
+
+	state->specular_map_data.resolution = 512;
+	create_terrain_texture_map_texture(&state->specular_map_data);
 }
 
 static void app_on_destroy(app_state *state)
@@ -368,7 +401,7 @@ static void app_on_destroy(app_state *state)
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
-	
+
 	glDeleteTextures(1, &state->water_frame_buffers.reflection_texture);
 	glDeleteTextures(1, &state->water_frame_buffers.refraction_texture);
 	glDeleteFramebuffers(1, &state->water_frame_buffers.reflection_fbo);
@@ -388,9 +421,9 @@ static void app_on_destroy(app_state *state)
 	glDeleteBuffers(1, &state->quad_ebo);
 	glDeleteVertexArrays(1, &state->triangle_vao);
 
-    glDeleteProgram(state->terrain_shader.program);
-    glDeleteProgram(state->simple_shader.program);
-    glDeleteProgram(state->water_shader.program);
+	glDeleteProgram(state->terrain_shader.program);
+	glDeleteProgram(state->simple_shader.program);
+	glDeleteProgram(state->water_shader.program);
 }
 
 static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
@@ -403,17 +436,19 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 	glUniform1f(state->terrain_shader.diffuse_strength, state->params->diffuse_strength);
 	glUniform1f(state->terrain_shader.specular_strength, state->params->specular_strength);
 
-	glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat*)(&state->light_pos));
+	glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
 	glUniform1f(state->terrain_shader.sand_height, state->params->sand_height);
+	glUniform1f(state->terrain_shader.stone_height, state->params->stone_height);
 	glUniform1f(state->terrain_shader.snow_height, state->params->snow_height);
 
-	glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat*)&state->params->light_colour);
-	glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat*)&state->params->slope_colour);
-	glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat*)&state->params->grass_colour);
-	glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat*)&state->params->sand_colour);
-	glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat*)&state->params->snow_colour);
+	glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&state->params->light_colour);
+	glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&state->params->slope_colour);
+	glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat *)&state->params->grass_colour);
+	glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&state->params->sand_colour);
+	glUniform3fv(state->terrain_shader.stone_colour, 1, (GLfloat *)&state->params->stone_colour);
+	glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&state->params->snow_colour);
 
-	glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat*)&state->cur_cam.pos);
+	glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat *)&state->cur_cam.pos);
 
 	glBindVertexArray(state->triangle_vao);
 
@@ -421,8 +456,8 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 
 	glBindBuffer(GL_ARRAY_BUFFER, state->chunks[chunk_index].vbo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->chunks[chunk_index].ebo);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
 	real32 model[16];
 	mat4_identity(model);
@@ -432,7 +467,7 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 	glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, state->cur_cam.view);
 	glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
 
-	// Default LOD is the highest quality.
+	// LOD 0 is the highest quality.
 	u32 chunk_lod_detail = 0;
 	s32 distance = 0;
 
@@ -456,31 +491,32 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 
 	// Find the offset of the LOD data we want to use be looping through every LOD level
 	// before the one we want and calculating the sum of the total size.
-	glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(chunk_offset_in_bytes));
+	glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void *)(chunk_offset_in_bytes));
 
 	if (state->wireframe) {
-		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		V3 grid_colour = { 1.f, 1.f, 1.f };
-		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat*)&grid_colour);
-		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat*)&grid_colour);
-		glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat*)&grid_colour);
-		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat*)&grid_colour);
-		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat*)&grid_colour);
-		glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void*)(chunk_offset_in_bytes));
+		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&grid_colour);
+		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&grid_colour);
+		glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat *)&grid_colour);
+		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&grid_colour);
+		glUniform3fv(state->terrain_shader.stone_colour, 1, (GLfloat *)&grid_colour);
+		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&grid_colour);
+		glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void *)(chunk_offset_in_bytes));
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
 }
 
 static void app_render_lights_and_features(app_state *state)
-{	
+{
 	// Lights
 	glUseProgram(state->simple_shader.program);
 
 	glBindVertexArray(state->triangle_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, state->quad_vbo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->quad_ebo);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
 	real32 model[16];
 	mat4_identity(model);
@@ -518,7 +554,7 @@ static void app_render_lights_and_features(app_state *state)
 }
 
 
-static void generate_trees(app_state* state)
+static void generate_trees(app_state *state)
 {
 	for (u32 i = 0; i < state->params->max_trees; i++) {
 		real32 x, y, z;
@@ -532,11 +568,11 @@ static void generate_trees(app_state* state)
 
 			std::uniform_int_distribution<> chunk_index(0, state->world_area - 1);
 
-			Chunk* chunk = &state->chunks[chunk_index(gen)];
+			Chunk *chunk = &state->chunks[chunk_index(state->rng)];
 
 			std::uniform_int_distribution<> vertex_index(0, chunk->vertices_count - 1);
 
-			Vertex* v = &chunk->vertices[vertex_index(gen)];
+			Vertex *v = &chunk->vertices[vertex_index(state->rng)];
 			x = chunk->x * state->chunk_vertices_length + v->pos.x;
 			y = v->pos.y;
 			z = chunk->y * state->chunk_vertices_length + v->pos.z;
@@ -544,16 +580,14 @@ static void generate_trees(app_state* state)
 			state->trees[i].y = y;
 			state->trees[i].z = z;
 		}
-
-
 	}
 }
 
-static void generate_world(app_state* state, app_memory* memory)
+static void generate_world(app_state *state, app_memory *memory, bool32 just_lods = false)
 {
 	for (u32 j = 0; j < state->world_width; j++) {
 		for (u32 i = 0; i < state->world_width; i++) {
-			state->generation_threads[j * state->world_width + i] = std::thread(app_generate_terrain_chunk, state, memory, &state->chunks[j * state->world_width + i]);
+			state->generation_threads[j * state->world_width + i] = std::thread(app_generate_terrain_chunk, state, memory, &state->chunks[j * state->world_width + i], just_lods);
 		}
 	}
 
@@ -568,26 +602,28 @@ static void generate_world(app_state* state, app_memory* memory)
 		for (u32 i = 0; i < state->world_width; i++) {
 			u32 index = j * state->world_width + i;
 
-			Chunk* chunk = &state->chunks[index];
+			Chunk *chunk = &state->chunks[index];
 
 			glBindBuffer(GL_ARRAY_BUFFER, chunk->vbo);
 			glBufferData(GL_ARRAY_BUFFER, chunk->vertices_count * sizeof Vertex, chunk->vertices, GL_STATIC_DRAW);
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
 			glEnableVertexAttribArray(0);
 
 			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, chunk->ebo);
 			glBufferData(GL_ELEMENT_ARRAY_BUFFER, chunk->lod_indices_count * sizeof(u32), chunk->lods, GL_STATIC_DRAW);
-			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 			glEnableVertexAttribArray(1);
 
 			quads_sum += chunk->lod_data_infos[0].quads_count;
 		}
 	}
 
+#ifdef _DEBUG
 	const u64 total_possible_quads = state->world_area * state->chunk_tile_length * state->chunk_tile_length;
 	printf("Total quads if no optimisation: %llu\n", total_possible_quads);
 	printf("Optimised quads: %llu\n", quads_sum);
 	printf("Optimisation %: %.2f percent\n", ((real64)quads_sum / total_possible_quads) * 100);
+#endif
 
 	generate_trees(state);
 }
@@ -620,7 +656,94 @@ static std::string face_string_without_normals(u32 f0, u32 f1, u32 f2)
 	return ss.str();
 }
 
-static void export_terrain_as_obj(app_state* state)
+static void export_terrain_chunk(app_state *state, Chunk *chunk)
+{
+	std::string filename = "terrain_chunk_" + std::to_string(chunk->y) + "_" + std::to_string(chunk->x) + ".obj";
+	std::ofstream object_file(filename, std::ios::out);
+
+	if (object_file.good()) {
+		object_file << "mtllib terrain.mtl" << std::endl;
+		object_file << "usemtl textured" << std::endl;
+		object_file << "o " << filename << std::endl;
+
+		for (u32 vertex = 0; vertex < chunk->vertices_count; vertex++) {
+			Vertex *current_vertex = &chunk->vertices[vertex];
+			// Offset chunk vertices by world position.
+			real32 x = current_vertex->pos.x + chunk->x * (state->chunk_tile_length);
+			real32 y = current_vertex->pos.y;
+			real32 z = current_vertex->pos.z + chunk->y * (state->chunk_tile_length);
+
+			object_file << "v " << x << " " << y << " " << z;
+			object_file << std::endl;
+		}
+
+		if (state->export_settings.texture_map) {
+			for (u32 vertex_row = 0; vertex_row < state->chunk_vertices_length; vertex_row++) {
+				for (u32 vertex_col = 0; vertex_col < state->chunk_vertices_length; vertex_col++) {
+					real32 u = (real32)(chunk->y * state->chunk_vertices_length + vertex_row) / (state->world_width * state->chunk_vertices_length);
+					real32 v = (real32)(chunk->x * state->chunk_vertices_length + vertex_col) / (state->world_width * state->chunk_vertices_length);
+
+					object_file << "vt " << u << " " << v << std::endl;
+				}
+			}
+		}
+
+		if (state->export_settings.with_normals) {
+			for (u32 vertex = 0; vertex < chunk->vertices_count; vertex++) {
+				Vertex *current_vertex = &chunk->vertices[vertex];
+				real32 nx = current_vertex->nor.x;
+				real32 ny = current_vertex->nor.y;
+				real32 nz = current_vertex->nor.z;
+				object_file << "vn " << nx << " " << ny << " " << nz << std::endl;
+			}
+		}
+
+		std::function<std::string(u32, u32, u32)> face_string_func;
+		face_string_func = face_string_without_normals;
+
+		if (state->export_settings.with_normals) {
+			face_string_func = face_string_with_normals;
+
+			if (state->export_settings.texture_map) {
+				face_string_func = face_string_with_normals_and_uv;
+			}
+		}
+		else if (state->export_settings.texture_map) {
+			face_string_func = face_string_with_uv;
+		}
+
+		u32 num_lods_to_export = 1;
+
+		if (state->export_settings.lods) {
+			num_lods_to_export = state->lod_settings.details_in_use;
+		}
+
+		// Each LOD has a group in that object.
+		for (u32 lod_detail_index = 0; lod_detail_index < num_lods_to_export; lod_detail_index++) {
+			object_file << "g " << filename << "_lod" << lod_detail_index << std::endl;
+
+			const u32 lod_detail = state->lod_settings.details[lod_detail_index];
+
+			u32 num_quads = chunk->lod_data_infos[lod_detail_index].quads_count;
+
+			for (u32 index = 0; index <= num_quads; index++) {
+				QuadIndices *current_quad = &chunk->lod_data_infos[lod_detail_index].quads[index];
+
+				u32 f0 = current_quad->i[0] + 1;
+				u32 f1 = current_quad->i[1] + 1;
+				u32 f2 = current_quad->i[2] + 1;
+				object_file << face_string_func(f0, f1, f2);
+
+				u32 f3 = current_quad->i[3] + 1;
+				u32 f4 = current_quad->i[4] + 1;
+				u32 f5 = current_quad->i[5] + 1;
+				object_file << face_string_func(f3, f4, f5);
+			}
+		}
+	}
+}
+
+static void export_terrain_one_obj(app_state *state)
 {
 	std::ofstream object_file("terrain.obj", std::ios::out);
 
@@ -636,7 +759,7 @@ static void export_terrain_as_obj(app_state* state)
 				object_file << "# Chunk" << chunk_index << " vertices" << std::endl;
 
 				for (u32 vertex = 0; vertex < state->chunks[chunk_index].vertices_count; vertex++) {
-					Vertex* current_vertex = &state->chunks[chunk_index].vertices[vertex];
+					Vertex *current_vertex = &state->chunks[chunk_index].vertices[vertex];
 					// Offset chunk vertices by world position.
 					real32 x = current_vertex->pos.x + chunk_x * (state->chunk_tile_length);
 					real32 y = current_vertex->pos.y;
@@ -669,7 +792,7 @@ static void export_terrain_as_obj(app_state* state)
 					u32 chunk_index = chunk_z * state->world_width + chunk_x;
 
 					for (u32 vertex = 0; vertex < state->chunks[chunk_index].vertices_count; vertex++) {
-						Vertex* current_vertex = &state->chunks[chunk_index].vertices[vertex];
+						Vertex *current_vertex = &state->chunks[chunk_index].vertices[vertex];
 						real32 nx = current_vertex->nor.x;
 						real32 ny = current_vertex->nor.y;
 						real32 nz = current_vertex->nor.z;
@@ -696,8 +819,8 @@ static void export_terrain_as_obj(app_state* state)
 		for (u32 chunk_z = 0; chunk_z < state->world_width; chunk_z++) {
 			for (u32 chunk_x = 0; chunk_x < state->world_width; chunk_x++) {
 				u32 chunk_index = chunk_z * state->world_width + chunk_x;
-				
-				Chunk* current_chunk = &state->chunks[chunk_index];
+
+				Chunk *current_chunk = &state->chunks[chunk_index];
 
 				u32 num_lods_to_export = 1;
 
@@ -710,11 +833,11 @@ static void export_terrain_as_obj(app_state* state)
 					object_file << "g Chunk" << chunk_index << "LOD" << lod_detail_index << std::endl;
 
 					const u32 lod_detail = state->lod_settings.details[lod_detail_index];
-					
+
 					u32 num_quads = current_chunk->lod_data_infos[lod_detail_index].quads_count;
 
 					for (u32 index = 0; index <= num_quads; index++) {
-						QuadIndices* current_quad = &current_chunk->lod_data_infos[lod_detail_index].quads[index];
+						QuadIndices *current_quad = &current_chunk->lod_data_infos[lod_detail_index].quads[index];
 						u64 chunk_vertices_number_offset = chunk_index * state->chunks[chunk_index].vertices_count;
 
 						u32 f0 = current_quad->i[0] + 1 + chunk_vertices_number_offset;
@@ -732,26 +855,50 @@ static void export_terrain_as_obj(app_state* state)
 		}
 	}
 
+	object_file.close();
+}
+
+static void export_terrain(app_state *state)
+{
+	if (state->export_settings.seperate_chunks) {
+		for (u32 j = 0; j < state->world_width; j++) {
+			for (u32 i = 0; i < state->world_width; i++) {
+				state->generation_threads[j * state->world_width + i] = std::thread(export_terrain_chunk, state, &state->chunks[j * state->world_width + i]);
+			}
+		}
+
+		for (u32 i = 0; i < state->world_area; i++) {
+			state->generation_threads[i].join();
+		}
+	}
+	else {
+		export_terrain_one_obj(state);
+	}
+
 	std::ofstream material_file("terrain.mtl", std::ios::out);
 
 	if (material_file.good()) {
 		material_file << "newmtl textured" << std::endl;
 		material_file << "Ka 1.000 1.000 1.000" << std::endl;
 		material_file << "Kd 1.000 1.000 1.000" << std::endl;
-		material_file << "Ks 0.000 0.000 0.000" << std::endl;
+		material_file << "Ks 1.000 1.000 1.000" << std::endl;
 		material_file << "d 1.000" << std::endl;
 		material_file << "illum 2" << std::endl;
 
 		if (state->export_settings.texture_map) {
-			material_file << "map_Ka terrain.tga" << std::endl;
-			material_file << "map_Kd terrain.tga" << std::endl;
+			material_file << "map_Ka diffuse.tga" << std::endl;
+			material_file << "map_Kd diffuse.tga" << std::endl;
+		}
+
+		if (state->export_settings.specular_map) {
+			material_file << "map_Ks specular.tga" << std::endl;
 		}
 	}
 
 	material_file.close();
 
 	if (state->export_settings.texture_map) {
-		std::ofstream tga_file("terrain.tga", std::ios::binary);
+		std::ofstream tga_file("diffuse.tga", std::ios::binary);
 		if (!tga_file) return;
 
 		char header[18] = { 0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
@@ -761,7 +908,7 @@ static void export_terrain_as_obj(app_state* state)
 		header[15] = (state->texture_map_data.resolution >> 8) & 0xFF;
 		header[16] = 24;
 
-		tga_file.write((char*)header, 18);
+		tga_file.write((char *)header, 18);
 
 		glBindVertexArray(state->triangle_vao);
 		glUseProgram(state->terrain_shader.program);
@@ -775,19 +922,19 @@ static void export_terrain_as_obj(app_state* state)
 
 		glUniform1f(state->terrain_shader.ambient_strength, state->params->ambient_strength);
 		glUniform1f(state->terrain_shader.diffuse_strength, state->params->diffuse_strength);
-		glUniform1f(state->terrain_shader.specular_strength, state->params->specular_strength);
+		glUniform1f(state->terrain_shader.specular_strength, 0.f);
 
-		glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat*)(&state->light_pos));
+		glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
 		glUniform1f(state->terrain_shader.sand_height, state->params->sand_height);
 		glUniform1f(state->terrain_shader.snow_height, state->params->snow_height);
 
-		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat*)&state->params->light_colour);
-		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat*)&state->params->slope_colour);
-		glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat*)&state->params->grass_colour);
-		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat*)&state->params->sand_colour);
-		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat*)&state->params->snow_colour);
+		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&state->params->light_colour);
+		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&state->params->slope_colour);
+		glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat *)&state->params->grass_colour);
+		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&state->params->sand_colour);
+		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&state->params->snow_colour);
 
-		glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat*)&state->cur_cam.pos);
+		glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat *)&state->cur_cam.pos);
 
 		Camera copy_cam = state->cur_cam;
 		camera_ortho(&copy_cam, state->world_tile_length, state->world_tile_length);
@@ -796,7 +943,7 @@ static void export_terrain_as_obj(app_state* state)
 		copy_cam.up = { 1, 0, 0 };
 		camera_look_at(&copy_cam); glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, copy_cam.view);
 		glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, copy_cam.ortho);
-		
+
 		glDisable(GL_DEPTH_TEST);
 		glViewport(0, 0, state->texture_map_data.resolution, state->texture_map_data.resolution);
 
@@ -805,37 +952,136 @@ static void export_terrain_as_obj(app_state* state)
 				u32 index = y * state->world_width + x;
 				glBindBuffer(GL_ARRAY_BUFFER, state->chunks[index].vbo);
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->chunks[index].ebo);
-				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
-				glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
+				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
+				glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
 				real32 model[16];
 				mat4_identity(model);
 				mat4_translate(model, x * state->chunk_tile_length, 0, y * state->chunk_tile_length);
 				glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
-				
-				glDrawElements(GL_TRIANGLES, state->chunks[index].lod_data_infos[0].quads_count * 6, GL_UNSIGNED_INT, (void*)(0));
+
+				glDrawElements(GL_TRIANGLES, state->chunks[index].lod_data_infos[0].quads_count * 6, GL_UNSIGNED_INT, (void *)(0));
 			}
 		}
-		
+
 		glViewport(0, 0, state->window_info.w, state->window_info.h);
 		glEnable(GL_DEPTH_TEST);
 
 		glReadPixels(0, 0, state->texture_map_data.resolution, state->texture_map_data.resolution, GL_BGR, GL_UNSIGNED_BYTE, state->texture_map_data.pixels);
 
-		tga_file.write((char*)state->texture_map_data.pixels, state->texture_map_data.resolution * state->texture_map_data.resolution * sizeof(RGB));
+		tga_file.write((char *)state->texture_map_data.pixels, state->texture_map_data.resolution * state->texture_map_data.resolution * sizeof(RGB));
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 		tga_file.close();
 	}
 
-	object_file.close();
+	if (state->export_settings.specular_map) {
+		std::ofstream tga_file("specular.tga", std::ios::binary);
+		if (!tga_file) return;
+
+		char header[18] = { 0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
+		header[12] = state->texture_map_data.resolution & 0xFF;
+		header[13] = (state->texture_map_data.resolution >> 8) & 0xFF;
+		header[14] = (state->texture_map_data.resolution) & 0xFF;
+		header[15] = (state->texture_map_data.resolution >> 8) & 0xFF;
+		header[16] = 24;
+
+		tga_file.write((char *)header, 18);
+
+		glBindVertexArray(state->triangle_vao);
+		glUseProgram(state->terrain_shader.program);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, state->texture_map_data.fbo);
+
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		real32 no_clip[4] = { 0, -1, 0, 100000 };
+		glUniform4fv(state->terrain_shader.plane, 1, no_clip);
+
+		glUniform1f(state->terrain_shader.ambient_strength, 0.f);
+		glUniform1f(state->terrain_shader.diffuse_strength, 0.f);
+		glUniform1f(state->terrain_shader.specular_strength, state->params->specular_strength);
+
+		glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
+		glUniform1f(state->terrain_shader.sand_height, state->params->sand_height);
+		glUniform1f(state->terrain_shader.snow_height, state->params->snow_height);
+
+		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&state->params->light_colour);
+		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&state->params->slope_colour);
+		glUniform3fv(state->terrain_shader.grass_colour, 1, (GLfloat *)&state->params->grass_colour);
+		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&state->params->sand_colour);
+		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&state->params->snow_colour);
+
+		glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat *)&state->cur_cam.pos);
+
+		Camera copy_cam = state->cur_cam;
+		camera_ortho(&copy_cam, state->world_tile_length, state->world_tile_length);
+		copy_cam.pos = { 0, 9000, 0 };
+		copy_cam.front = { 0, -1, 0 };
+		copy_cam.up = { 1, 0, 0 };
+		camera_look_at(&copy_cam); glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, copy_cam.view);
+		glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, copy_cam.ortho);
+
+		glDisable(GL_DEPTH_TEST);
+		glViewport(0, 0, state->texture_map_data.resolution, state->texture_map_data.resolution);
+
+		for (u32 y = 0; y < state->world_width; y++) {
+			for (u32 x = 0; x < state->world_width; x++) {
+				u32 index = y * state->world_width + x;
+				glBindBuffer(GL_ARRAY_BUFFER, state->chunks[index].vbo);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->chunks[index].ebo);
+				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
+				glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
+
+				real32 model[16];
+				mat4_identity(model);
+				mat4_translate(model, x * state->chunk_tile_length, 0, y * state->chunk_tile_length);
+				glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
+
+				glDrawElements(GL_TRIANGLES, state->chunks[index].lod_data_infos[0].quads_count * 6, GL_UNSIGNED_INT, (void *)(0));
+			}
+		}
+
+		glViewport(0, 0, state->window_info.w, state->window_info.h);
+		glEnable(GL_DEPTH_TEST);
+
+		glReadPixels(0, 0, state->texture_map_data.resolution, state->texture_map_data.resolution, GL_BGR, GL_UNSIGNED_BYTE, state->texture_map_data.pixels);
+
+		tga_file.write((char *)state->texture_map_data.pixels, state->texture_map_data.resolution * state->texture_map_data.resolution * sizeof(RGB));
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		tga_file.close();
+	}
+}
+
+static void load_custom_preset_from_file(app_state *state)
+{
+	std::ifstream file("custom.world", std::ios::binary);
+
+	if (file.good()) {
+		file.read((char *)&state->custom_parameters, sizeof(world_generation_parameters));
+	}
+
+	file.close();
+}
+
+static void save_custom_preset_to_file(app_state *state)
+{
+	std::ofstream file("custom.world", std::ios::binary);
+
+	if (file.good()) {
+		file.write((char *)&state->custom_parameters, sizeof(world_generation_parameters));
+	}
+
+	file.close();
 }
 
 static void app_render(app_state *state, app_memory *memory)
 {
 	real32 reflection_clip[4] = { 0, 1, 0, -state->params->water_pos.y };
-	real32 refraction_clip[4] = { 0, -1, 0, state->params->water_pos.y }; 
+	real32 refraction_clip[4] = { 0, -1, 0, state->params->water_pos.y };
 	real32 no_clip[4] = { 0, -1, 0, 100000 };
 
 	Camera camera_backup = state->cur_cam;
@@ -889,7 +1135,7 @@ static void app_render(app_state *state, app_memory *memory)
 	}
 
 	app_render_lights_and_features(state);
-	
+
 	glDisable(GL_CLIP_DISTANCE0);
 
 	// Water
@@ -898,8 +1144,8 @@ static void app_render(app_state *state, app_memory *memory)
 
 	glBindBuffer(GL_ARRAY_BUFFER, state->quad_vbo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->quad_ebo);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
 	real32 model[16];
 	mat4_identity(model);
@@ -911,7 +1157,7 @@ static void app_render(app_state *state, app_memory *memory)
 	glUniformMatrix4fv(state->water_shader.view, 1, GL_FALSE, state->cur_cam.view);
 	glUniformMatrix4fv(state->water_shader.model, 1, GL_FALSE, model);
 
-	glUniform3fv(state->water_shader.water_colour, 1, (GLfloat*)&state->params->water_colour);
+	glUniform3fv(state->water_shader.water_colour, 1, (GLfloat *)&state->params->water_colour);
 
 	glUniform1i(state->water_shader.reflection_texture, 0);
 	glUniform1i(state->water_shader.refraction_texture, 1);
@@ -923,7 +1169,7 @@ static void app_render(app_state *state, app_memory *memory)
 
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	// End of water
-	
+
 	// UI
 	ImGui::NewFrame();
 
@@ -945,33 +1191,88 @@ static void app_render(app_state *state, app_memory *memory)
 
 	bool regenerate_chunks = false;
 	bool regenerate_trees = false;
+	bool regenerate_lods = false;
+	bool update_camera = false;
+	bool reseed = false;
+
+	if (ImGui::TreeNode("Debug")) {
+		if (ImGui::Button("Toggle wireframe")) {
+			state->wireframe = !state->wireframe;
+		}
+		if (ImGui::Button("Toggle flying")) {
+			state->flying = !state->flying;
+		}
+
+		u32 quads_displayed = 0;
+		u32 quads_in_memory = 0;
+
+		for (u32 i = 0; i < state->chunk_count; i++) {
+			quads_in_memory += state->chunks[i].lod_indices_count;
+
+			u32 lod_detail = 0;
+
+			if (&state->chunks[i] != state->current_chunk) {
+				const u32 dx = state->chunks[i].x - state->current_chunk->x;
+				const u32 dy = state->chunks[i].y - state->current_chunk->y;
+				distance = sqrtf(dx * dx + dy * dy);
+
+				// Cap the distance to the highest (lowest detail) LOD.
+				if (distance >= state->lod_settings.details_in_use) {
+					distance = state->lod_settings.details_in_use - 1;
+				}
+
+				lod_detail = distance;
+			}
+
+			quads_displayed += state->chunks[i].lod_data_infos[lod_detail].quads_count;
+		}
+
+		// Indices -> Quads.
+		quads_in_memory /= 6;
+
+		ImGui::Text("Quads onscreen: %d", quads_displayed);
+		ImGui::Text("Quads in memory: %d", quads_in_memory);
+
+		ImGui::TreePop();
+	}
 
 	if (ImGui::TreeNode("Export")) {
-		ImGui::Checkbox("Include normals", (bool*)&state->export_settings.with_normals);
-		ImGui::Checkbox("Ambient + Diffuse map", (bool*)&state->export_settings.texture_map);
 
+		ImGui::Checkbox("Include normals", (bool *)&state->export_settings.with_normals);
+
+		ImGui::Checkbox("Ambient + Diffuse map", (bool *)&state->export_settings.texture_map);
 		if (state->export_settings.texture_map) {
-			ImGui::SameLine();
-			const char* resolutions[] = { "256", "512", "1024", "2048", "4096", "8192", "16384" };
-			static int resolution_current = 0;
-			if (ImGui::Combo(" ", &resolution_current, resolutions, IM_ARRAYSIZE(resolutions))) {
-				state->texture_map_data.resolution = atoi(resolutions[resolution_current]);
-				printf("%d", state->texture_map_data.resolution);
+			static int texture_map_resolution_current = 0;
+			if (ImGui::Combo("texture resolution", &texture_map_resolution_current, texture_resolutions, 7)) {
+				state->texture_map_data.resolution = atoi(texture_resolutions[texture_map_resolution_current]);
 				create_terrain_texture_map_texture(&state->texture_map_data);
 			}
 		}
 
-		ImGui::Checkbox("LODs", (bool*)&state->export_settings.lods);
+		ImGui::Checkbox("Specular map", (bool *)&state->export_settings.specular_map);
+		if (state->export_settings.specular_map) {
+			static int specular_map_resolution_current = 0;
+			if (ImGui::Combo("specular resolution", &specular_map_resolution_current, specular_resolutions, 7)) {
+				state->specular_map_data.resolution = atoi(specular_resolutions[specular_map_resolution_current]);
+				create_terrain_texture_map_texture(&state->specular_map_data);
+			}
+		}
+
+		ImGui::Checkbox("Chunks into seperate files", (bool *)&state->export_settings.seperate_chunks);
+
+		ImGui::Checkbox("LODs", (bool *)&state->export_settings.lods);
 
 		if (ImGui::Button("Go!")) {
-			export_terrain_as_obj(state);
+			export_terrain(state);
 		}
 
 		ImGui::TreePop();
 	}
 
 	if (ImGui::TreeNode("LOD")) {
-		ImGui::SliderInt("number of LODs", (int*)&state->lod_settings.details_in_use, 1, state->lod_settings.max_available_count, "%d", ImGuiSliderFlags_None);
+		ImGui::SliderInt("number of LODs", (int *)&state->lod_settings.details_in_use, 1, state->lod_settings.max_available_count, "%d", ImGuiSliderFlags_None);
+
+		regenerate_lods |= ImGui::SliderInt("LOD multiplier", (int *)&state->lod_settings.detail_multiplier, 1, state->lod_settings.max_detail_multiplier, "%d", ImGuiSliderFlags_None);
 
 		ImGui::TreePop();
 	}
@@ -980,7 +1281,11 @@ static void app_render(app_state *state, app_memory *memory)
 		bool custom, plains, desert, mountains;
 		custom = plains = desert = mountains = false;
 
-		custom = ImGui::Button("Custom");
+		custom = ImGui::Button("Custom"); ImGui::SameLine();
+		if (ImGui::Button("Save")) {
+			save_custom_preset_to_file(state);
+		}
+
 		plains = ImGui::Button("Green Plains");
 		desert = ImGui::Button("Rugged Desert");
 		mountains = ImGui::Button("Harsh Mountains");
@@ -1002,7 +1307,15 @@ static void app_render(app_state *state, app_memory *memory)
 		ImGui::TreePop();
 	}
 
+	if (ImGui::TreeNode("Camera")) {
+		update_camera |= ImGui::SliderFloat("fov", &state->cur_cam.fov, 1.f, 120.f, "%.0f", ImGuiSliderFlags_None);
+
+		ImGui::TreePop();
+	}
+
 	if (ImGui::TreeNode("Perlin Noise Parameters")) {
+		reseed |= ImGui::InputInt("Seed", (int *)&state->params->seed); ImGui::SameLine();
+		regenerate_chunks |= ImGui::Button("Regenerate");
 		regenerate_chunks |= ImGui::SliderFloat("scale", &state->params->scale, 0.1, 10.f, "%.2f", ImGuiSliderFlags_None);
 		regenerate_chunks |= ImGui::SliderFloat("y scale", &state->params->y_scale, 0.f, 1000.f, "%.2f", ImGuiSliderFlags_None);
 		regenerate_chunks |= ImGui::SliderFloat("lacunarity", &state->params->lacunarity, 0.f, 3.f, "%.2f", ImGuiSliderFlags_None);
@@ -1013,9 +1326,17 @@ static void app_render(app_state *state, app_memory *memory)
 	}
 
 	if (ImGui::TreeNode("Lighting & Colours")) {
-		ImGui::SliderFloat("ambient strength", &state->params->ambient_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-		ImGui::SliderFloat("diffuse strength", &state->params->diffuse_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-		ImGui::SliderFloat("specular strength", &state->params->specular_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+
+
+		if (ImGui::TreeNode("Light")) {
+			ImGui::SliderFloat("light colour red", &state->params->light_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("light colour green", &state->params->light_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("light colour blue", &state->params->light_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("ambient strength", &state->params->ambient_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("diffuse strength", &state->params->diffuse_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("specular strength", &state->params->specular_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::TreePop();
+		}
 
 		if (ImGui::TreeNode("Grass")) {
 			ImGui::SliderFloat("grass colour red", &state->params->grass_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
@@ -1045,6 +1366,13 @@ static void app_render(app_state *state, app_memory *memory)
 			ImGui::TreePop();
 		}
 
+		if (ImGui::TreeNode("Stone")) {
+			ImGui::SliderFloat("stone colour red", &state->params->stone_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("stone colour green", &state->params->stone_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("stone colour blue", &state->params->stone_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::TreePop();
+		}
+
 		if (ImGui::TreeNode("Snow")) {
 			ImGui::SliderFloat("snow colour red", &state->params->snow_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 			ImGui::SliderFloat("snow colour green", &state->params->snow_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
@@ -1065,15 +1393,16 @@ static void app_render(app_state *state, app_memory *memory)
 	if (ImGui::TreeNode("Heightmap")) {
 		regenerate_chunks |= ImGui::SliderFloat("water height", &state->params->water_pos.y, -50.f, 300.f, "%.2f", ImGuiSliderFlags_None);
 		ImGui::SliderFloat("sand height", &state->params->sand_height, 0.f, 300.f, "%.2f", ImGuiSliderFlags_None);
+		ImGui::SliderFloat("stone height", &state->params->stone_height, 0.f, 2000.f, "%.2f", ImGuiSliderFlags_None);
 		ImGui::SliderFloat("snow height", &state->params->snow_height, 0.f, 2000.f, "%.2f", ImGuiSliderFlags_None);
 		ImGui::TreePop();
 	}
 
 	if (ImGui::TreeNode("Features")) {
 		if (ImGui::TreeNode("Trees")) {
-			ImGui::SliderInt("tree count", (int*)&state->params->tree_count, 0, state->params->max_trees, "%d", ImGuiSliderFlags_None);
-			ImGui::SliderInt("tree min height", (int*)&state->params->tree_min_height, 0, 1000, "%d", ImGuiSliderFlags_None);
-			ImGui::SliderInt("tree max height", (int*)&state->params->tree_max_height, 0, 1000, "%d", ImGuiSliderFlags_None);
+			ImGui::SliderInt("tree count", (int *)&state->params->tree_count, 0, state->params->max_trees, "%d", ImGuiSliderFlags_None);
+			ImGui::SliderInt("tree min height", (int *)&state->params->tree_min_height, 0, 1000, "%d", ImGuiSliderFlags_None);
+			ImGui::SliderInt("tree max height", (int *)&state->params->tree_max_height, 0, 1000, "%d", ImGuiSliderFlags_None);
 			regenerate_trees |= ImGui::Button("Regenerate");
 			ImGui::TreePop();
 		}
@@ -1085,17 +1414,31 @@ static void app_render(app_state *state, app_memory *memory)
 	ImGui::Render();
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+	if (reseed) {
+		state->rng.seed(state->params->seed);
+		seed_perlin(state->rng);
+	}
+
 	if (regenerate_chunks) {
 		generate_world(state, memory);
+	}
+
+	if (regenerate_lods) {
+		init_lod_detail_levels(&state->lod_settings, state->chunk_tile_length);
+		generate_world(state, memory, true);
 	}
 
 	if (regenerate_trees) {
 		generate_trees(state);
 	}
+
+	if (update_camera) {
+		camera_frustrum(&state->cur_cam, state->window_info.w, state->window_info.h);
+	}
 	// End of UI
 }
 
-void app_init(app_state* state, app_memory* memory)
+void app_init(app_state *state, app_memory *memory)
 {
 	memory->free_offset = sizeof(app_state);
 
@@ -1123,8 +1466,8 @@ void app_init(app_state* state, app_memory* memory)
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->quad_ebo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof quad_indices, quad_indices, GL_STATIC_DRAW);
 
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void*)(3 * sizeof(real32)));
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
 	// ---End of quad mesh
@@ -1138,11 +1481,13 @@ void app_init(app_state* state, app_memory* memory)
 	state->terrain_shader.light_pos = glGetUniformLocation(state->terrain_shader.program, "light_pos");
 	state->terrain_shader.plane = glGetUniformLocation(state->terrain_shader.program, "plane");
 	state->terrain_shader.sand_height = glGetUniformLocation(state->terrain_shader.program, "sand_height");
+	state->terrain_shader.stone_height = glGetUniformLocation(state->terrain_shader.program, "stone_height");
 	state->terrain_shader.snow_height = glGetUniformLocation(state->terrain_shader.program, "snow_height");
 	state->terrain_shader.light_colour = glGetUniformLocation(state->terrain_shader.program, "light_colour");
 	state->terrain_shader.grass_colour = glGetUniformLocation(state->terrain_shader.program, "grass_colour");
 	state->terrain_shader.slope_colour = glGetUniformLocation(state->terrain_shader.program, "slope_colour");
 	state->terrain_shader.sand_colour = glGetUniformLocation(state->terrain_shader.program, "sand_colour");
+	state->terrain_shader.stone_colour = glGetUniformLocation(state->terrain_shader.program, "stone_colour");
 	state->terrain_shader.snow_colour = glGetUniformLocation(state->terrain_shader.program, "snow_colour");
 	state->terrain_shader.ambient_strength = glGetUniformLocation(state->terrain_shader.program, "ambient_strength");
 	state->terrain_shader.diffuse_strength = glGetUniformLocation(state->terrain_shader.program, "diffuse_strength");
@@ -1168,39 +1513,26 @@ void app_init(app_state* state, app_memory* memory)
 	state->chunk_tile_length = 256;
 	state->chunk_vertices_length = state->chunk_tile_length + 1;
 	state->chunk_count = 0;
-	state->world_width = 2;
+	state->world_width = 10;
 	state->world_area = state->world_width * state->world_width;
 	state->world_tile_length = state->chunk_tile_length * state->world_width;
-	state->generation_threads = (std::thread*)my_malloc(memory, state->world_area * sizeof(std::thread));
+	state->generation_threads = (std::thread *)my_malloc(memory, state->world_area * sizeof(std::thread));
 	// ---End of terrain data.
 
 	// ---LOD settings
-	state->lod_settings.max_details_count = 16;
-	state->lod_settings.details = (u32*)my_malloc(memory, state->lod_settings.max_details_count * sizeof(u32));
+	state->lod_settings.detail_multiplier = 1;
+	state->lod_settings.max_detail_multiplier = 5;
+	state->lod_settings.max_details_count = 10;
+	state->lod_settings.details = (u32 *)my_malloc(memory, state->lod_settings.max_details_count * sizeof(u32));
 
-	// LOD detail levels have to be powers of 2 or everything blows up.
-	u32 detail = 1;
-	for (u32 i = 0; i < state->lod_settings.max_details_count; i++) {
-		state->lod_settings.details[i] = detail;
-		detail *= 2;
-	}
-
-	// Find the most LODs possible for the chunk size.
-	for (u32 i = 0; i < state->lod_settings.max_details_count; i++) {
-		state->lod_settings.max_available_count = i;
-
-		if (state->lod_settings.details[i] > state->chunk_tile_length) {
-			break;
-		}
-	}
-
-	state->lod_settings.details_in_use = state->lod_settings.max_available_count;
+	init_lod_detail_levels(&state->lod_settings, state->chunk_tile_length);
 	// ---end of LOD settings.
 
-	init_water_data(state);	
-	init_terrain_texture_map_data(state, memory);
+	init_water_data(state);
 
-	state->chunks = (Chunk*)my_malloc(memory, state->world_area * sizeof(Chunk));
+	init_terrain_texture_maps(state, memory);
+
+	state->chunks = (Chunk *)my_malloc(memory, state->world_area * sizeof(Chunk));
 
 	for (u32 j = 0; j < state->world_width; j++) {
 		for (u32 i = 0; i < state->world_width; i++) {
@@ -1213,13 +1545,12 @@ void app_init(app_state* state, app_memory* memory)
 			u64 chunk_lods_size = state->lod_settings.max_available_count * state->chunk_tile_length * state->chunk_tile_length * sizeof(QuadIndices);
 			u32 vertices_count = (state->chunk_vertices_length) * (state->chunk_vertices_length);
 
-			state->chunks[index].vertices_count = 0;
+			state->chunks[index].vertices_count = vertices_count;
 			state->chunks[index].lod_indices_count = 0;
-			state->chunks[index].vertices = (Vertex*)my_malloc(memory, chunk_vertices_size);
-			state->chunks[index].optimized_vertices = (Vertex*)my_malloc(memory, chunk_vertices_size);
-			state->chunks[index].searched = (bool32*)my_malloc(memory, vertices_count * sizeof(bool32));
-			state->chunks[index].lods = (QuadIndices*)my_malloc(memory, chunk_lods_size);
-			state->chunks[index].lod_data_infos = (LODDataInfo*)my_malloc(memory, state->lod_settings.max_available_count * sizeof(LODDataInfo));
+			state->chunks[index].vertices = (Vertex *)my_malloc(memory, chunk_vertices_size);
+			state->chunks[index].searched = (bool32 *)my_malloc(memory, vertices_count * sizeof(bool32));
+			state->chunks[index].lods = (QuadIndices *)my_malloc(memory, chunk_lods_size);
+			state->chunks[index].lod_data_infos = (LODDataInfo *)my_malloc(memory, state->lod_settings.max_available_count * sizeof(LODDataInfo));
 			state->chunks[index].world_pos = { (real32)i * state->chunk_tile_length, 0, (real32)j * state->chunk_tile_length };
 			state->chunks[index].x = i;
 			state->chunks[index].y = j;
@@ -1228,8 +1559,9 @@ void app_init(app_state* state, app_memory* memory)
 		}
 	}
 
-	// --- Generation parameters
-	state->custom_parameters.scale = state->chunk_tile_length / 50.f; // Makes the scale reasonable for most world sizes
+	// --- Default generation parameters if no file is present.
+	state->custom_parameters.seed = 10;
+	state->custom_parameters.scale = state->chunk_tile_length / 100.f; // Makes the scale reasonable for most world sizes
 	state->custom_parameters.lacunarity = 1.6f;
 	state->custom_parameters.persistence = 0.45f;
 	state->custom_parameters.elevation_power = 3.f;
@@ -1239,13 +1571,15 @@ void app_init(app_state* state, app_memory* memory)
 	state->custom_parameters.water_pos.y = 3.f * state->custom_parameters.scale;
 	state->custom_parameters.water_pos.z = state->world_tile_length / 2;
 	state->custom_parameters.sand_height = 4.f * state->custom_parameters.scale;
-	state->custom_parameters.snow_height = 200.f * state->custom_parameters.scale;
+	state->custom_parameters.stone_height = 75.f * state->custom_parameters.scale;
+	state->custom_parameters.snow_height = 100.f * state->custom_parameters.scale;
 	state->custom_parameters.ambient_strength = 1.f;
 	state->custom_parameters.diffuse_strength = 0.3f;
 	state->custom_parameters.specular_strength = 0.35f;
 	state->custom_parameters.light_colour = { 1.f, 0.8f, 0.7f };
 	state->custom_parameters.grass_colour = { 0.15f, 0.23f, 0.13f };
 	state->custom_parameters.sand_colour = { 0.8f, 0.81f, 0.55f };
+	state->custom_parameters.stone_colour = { 0.3f, 0.3f, 0.3f };
 	state->custom_parameters.snow_colour = { 0.8f, 0.8f, 0.8f };
 	state->custom_parameters.slope_colour = { 0.75f, 0.72f, 0.61f };
 	state->custom_parameters.water_colour = { .07f, .07f, 0.16f };
@@ -1255,30 +1589,39 @@ void app_init(app_state* state, app_memory* memory)
 	state->custom_parameters.tree_max_height = state->custom_parameters.snow_height;
 	state->custom_parameters.max_trees = 10000;
 
+	// Built in presets are based off the default custom parameters.
 	state->green_plains_parameters = state->custom_parameters;
-	state->custom_parameters.elevation_power = 2.5f;
-	state->green_plains_parameters.y_scale = 20.;
-	state->green_plains_parameters.lacunarity = 1.6f;
+	state->green_plains_parameters.elevation_power = 2.5f;
+	state->green_plains_parameters.y_scale = 40.;
+	state->green_plains_parameters.lacunarity = 1.65f;
+	state->green_plains_parameters.water_pos.y = 4.f;
+	state->green_plains_parameters.sand_height = 4.5f;
 
 	state->rugged_desert_parameters = state->custom_parameters;
-	state->rugged_desert_parameters.persistence = 0.55f;
+	state->rugged_desert_parameters.persistence = 0.6f;
 	state->rugged_desert_parameters.lacunarity = 1.7f;
-	state->rugged_desert_parameters.y_scale = 50.f;
-	state->rugged_desert_parameters.sand_height = 500;
-	state->rugged_desert_parameters.water_pos.y = 0;
+	state->rugged_desert_parameters.y_scale = 60.f;
+	state->rugged_desert_parameters.water_pos.y = -1;
+	state->rugged_desert_parameters.sand_height = 110;
+	state->rugged_desert_parameters.snow_height = 75;
 
 	state->harsh_mountains_parameters = state->custom_parameters;
-	state->harsh_mountains_parameters.y_scale = 140.f;
+	state->harsh_mountains_parameters.y_scale = 120.f;
 	state->harsh_mountains_parameters.lacunarity = 1.7f;
 	state->harsh_mountains_parameters.persistence = 0.51f;
 	state->harsh_mountains_parameters.elevation_power = 4.f;
-	
-	state->params = &state->harsh_mountains_parameters;
+
+	// Attempt to load custom parameters from file.
+	load_custom_preset_from_file(state);
+
+	state->params = &state->custom_parameters;
 	// ---End of generation parameters
 
-	state->trees = (V3*)my_malloc(memory, state->params->max_trees * sizeof V3);
-	
-	seed_perlin();
+	state->trees = (V3 *)my_malloc(memory, state->params->max_trees * sizeof V3);
+
+	state->rng = std::mt19937(state->params->seed);
+
+	seed_perlin(state->rng);
 	generate_world(state, memory);
 
 	camera_init(&state->cur_cam);
@@ -1299,29 +1642,33 @@ void app_init(app_state* state, app_memory* memory)
 	state->flying = true;
 }
 
-void app_handle_input(real32 dt, app_state* state, app_memory *memory, app_keyboard_input* keyboard)
+void app_handle_input(real32 dt, app_state *state, app_memory *memory, app_keyboard_input *keyboard)
 {
 	if (keyboard->forward.ended_down) {
 		camera_move_forward(&state->cur_cam, dt);
-	} else if (keyboard->backward.ended_down) {
+	}
+	else if (keyboard->backward.ended_down) {
 		camera_move_backward(&state->cur_cam, dt);
 	}
 
 	if (keyboard->left.ended_down) {
 		camera_move_left(&state->cur_cam, dt);
-	} else if (keyboard->right.ended_down) {
+	}
+	else if (keyboard->right.ended_down) {
 		camera_move_right(&state->cur_cam, dt);
 	}
 
 	if (keyboard->cam_up.ended_down) {
 		state->cur_cam.pitch += state->cur_cam.look_speed * dt;
-	} else if (keyboard->cam_down.ended_down) {
+	}
+	else if (keyboard->cam_down.ended_down) {
 		state->cur_cam.pitch -= state->cur_cam.look_speed * dt;
 	}
 
 	if (keyboard->cam_left.ended_down) {
 		state->cur_cam.yaw -= state->cur_cam.look_speed * dt;
-	} else if (keyboard->cam_right.ended_down) {
+	}
+	else if (keyboard->cam_right.ended_down) {
 		state->cur_cam.yaw += state->cur_cam.look_speed * dt;
 	}
 
@@ -1330,7 +1677,7 @@ void app_handle_input(real32 dt, app_state* state, app_memory *memory, app_keybo
 	}
 
 	if (keyboard->reset.toggled) {
-		seed_perlin();
+		seed_perlin(state->rng);
 		generate_world(state, memory);
 	}
 
@@ -1341,13 +1688,15 @@ void app_handle_input(real32 dt, app_state* state, app_memory *memory, app_keybo
 	// Out of bounds check
 	if (state->cur_cam.pos.x >= state->world_tile_length) {
 		state->cur_cam.pos.x = state->world_tile_length - 1;
-	} else if (state->cur_cam.pos.x < 0) {
+	}
+	else if (state->cur_cam.pos.x < 0) {
 		state->cur_cam.pos.x = 0;
 	}
 
 	if (state->cur_cam.pos.z >= state->world_tile_length) {
 		state->cur_cam.pos.z = state->world_tile_length - 1;
-	} else if (state->cur_cam.pos.z < 0) {
+	}
+	else if (state->cur_cam.pos.z < 0) {
 		state->cur_cam.pos.z = 0;
 	}
 }
@@ -1356,19 +1705,19 @@ void app_update(app_state *state)
 {
 	// Keep track of current chunk for LODs and collision.
 	const real32 num_vertices = state->chunk_vertices_length;
-	const u32 cam_chunk_x = (u32)(state->cur_cam.pos.x / state->chunk_tile_length);
-	const u32 cam_chunk_z = (u32)(state->cur_cam.pos.z / state->chunk_tile_length);
+	const u32 current_chunk_x = (u32)(state->cur_cam.pos.x / state->chunk_tile_length);
+	const u32 current_chunk_z = (u32)(state->cur_cam.pos.z / state->chunk_tile_length);
 
-	state->current_chunk = &state->chunks[cam_chunk_z * state->world_width + cam_chunk_x];
+	state->current_chunk = &state->chunks[current_chunk_z * state->world_width + current_chunk_x];
 
 	if (!state->flying) {
 		state->cur_cam.vel = 5.f;
 
-		real32 cam_pos_x_relative = state->cur_cam.pos.x - cam_chunk_x * state->chunk_tile_length;
-		real32 cam_pos_z_relative = state->cur_cam.pos.z - cam_chunk_z * state->chunk_tile_length;
+		real32 cam_pos_x_relative = state->cur_cam.pos.x - current_chunk_x * state->chunk_tile_length;
+		real32 cam_pos_z_relative = state->cur_cam.pos.z - current_chunk_z * state->chunk_tile_length;
 
 		const u32 i0 = (u32)cam_pos_z_relative * num_vertices + (u32)cam_pos_x_relative;
-		QuadIndices* camera_quad = &state->current_chunk->lod_data_infos[0].quads[0];
+		QuadIndices *camera_quad = &state->current_chunk->lod_data_infos[0].quads[0];
 
 		// Find the quad who's first vertex is the vertex bottom-left of the camera.
 		for (u32 quad_index = 0; quad_index < state->current_chunk->lod_data_infos[0].quads_count; quad_index++) {
@@ -1395,14 +1744,15 @@ void app_update(app_state *state)
 		const real32 y = (d - (n.x * cam_pos_x_relative) - (n.z * cam_pos_z_relative)) / n.y;
 
 		state->cur_cam.pos.y = y + 1.5f;
-	} else {
+	}
+	else {
 		state->cur_cam.vel = 300.f;
 	}
 }
 
 void app_update_and_render(real32 dt, app_input *input, app_memory *memory, app_window_info *window_info)
 {
-	app_state *state = (app_state*)memory->permenant_storage;
+	app_state *state = (app_state *)memory->permenant_storage;
 
 	state->window_info = *window_info;
 
@@ -1421,8 +1771,7 @@ void app_update_and_render(real32 dt, app_input *input, app_memory *memory, app_
 		camera_frustrum(&state->cur_cam, window_info->w, window_info->h);
 	}
 
-    app_keyboard_input *keyboard = &input->keyboard;
-	app_handle_input(dt, state, memory, keyboard);
+	app_handle_input(dt, state, memory, &input->keyboard);
 	app_update(state);
 	app_render(state, memory);
 }

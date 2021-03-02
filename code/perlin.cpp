@@ -1,15 +1,11 @@
-#include <random>
-
 #include "perlin.h"
 
 static u8 P[512];
 
 #include <windows.h>
 
-void seed_perlin()
+void seed_perlin(std::mt19937 &rng)
 {
-	std::random_device rd; 
-	std::mt19937 gen(rd());
 	std::uniform_int_distribution<> distr(0, 255);
 
     for (u32 i = 0; i < 256; i++) {
@@ -17,7 +13,7 @@ void seed_perlin()
     }
 
     for (u32 i = 0; i < 256; i++) {
-        const u8 index = distr(gen);
+        const u8 index = distr(rng);
         const u8 temp = P[index];
         P[i] = P[index];
         P[index] = temp;

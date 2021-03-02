@@ -41,8 +41,10 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
+#ifdef _DEBUG
 	AllocConsole();
 	freopen("CONOUT$", "w", stdout);
+#endif
 
     WNDCLASSEXA window_class = {};
 	window_class.cbSize = sizeof(WNDCLASSEX);
@@ -85,7 +87,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     ImGui::StyleColorsClassic();
 
 	app_memory memory = {};
-	memory.permenant_storage_size = Megabytes(8000);
+	memory.permenant_storage_size = Megabytes(4000);
 	memory.permenant_storage = VirtualAlloc(0, memory.permenant_storage_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	
 	if (memory.permenant_storage) {

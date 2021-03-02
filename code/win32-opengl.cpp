@@ -165,7 +165,7 @@ HGLRC win32_create_gl_context(HWND hwnd)
 	}
 
 	glEnable(GL_DEBUG_OUTPUT);
-	//glDebugMessageCallback(gl_message_callback, 0);
+	glDebugMessageCallback(gl_message_callback, 0);
 
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_BLEND);  

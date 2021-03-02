@@ -44,16 +44,23 @@ namespace Shaders {
     uniform vec3 light_colour;
     uniform vec3 grass_colour;
     uniform vec3 sand_colour;
+    uniform vec3 stone_colour;
     uniform vec3 snow_colour;
     uniform vec3 slope_colour;
 
     uniform float water_height;
     uniform float sand_height;
     uniform float snow_height;
+    uniform float stone_height;
 
     uniform vec3 view_position;
 
     out vec4 frag;
+
+    float bias(float x, float b) {
+        b = -log2(1.0 - b);
+        return 1.0 - pow(1.0 - pow(x, 1./b), b);
+    }
 
     void main()
     {
@@ -61,7 +68,6 @@ namespace Shaders {
         //float attenuation = 1.0f / (1.0f + 0.001 * dist + 0.0001 * dist * dist);
         float attenuation = 1.0f;
         
-        vec3 light_colour = vec3(1.0f, 0.9f, 0.8f);
         vec3 ambient = ambient_strength * light_colour;
 
         vec3 light_dir = normalize(light_pos - v_pos);
@@ -73,19 +79,16 @@ namespace Shaders {
         float spec = pow(max(dot(view_dir, reflect_dir), 0.f), 3);
         vec3 specular = specular_strength * spec * light_colour;
         
-        vec4 stone_colour_rgba = vec4(0.3f, 0.3f, 0.3f, 1.f);
-        vec4 grass_colour_rgba = vec4(grass_colour, 1.0f);
-        vec4 slope_colour_rgba = vec4(slope_colour, 1.0f);
-        vec4 snow_colour_rgba = vec4(snow_colour, 1.0f);
-        vec4 sand_colour_rgba = vec4(sand_colour, 1.0f);
+        vec3 blended = mix(grass_colour, slope_colour, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
+        blended = mix(blended, stone_colour, min(1, v_pos.y / stone_height));
 
-        vec4 blended = mix(grass_colour_rgba, slope_colour_rgba, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
-        blended = mix(blended, stone_colour_rgba, min(v_pos.y / snow_height, 1.f));
-        //blended = mix(blended, snow_colour_rgba, min(v_pos.y / snow_height, 0.2f));
+        if (v_pos.y > snow_height) {
+            blended = mix(blended, snow_colour, min(1, bias((v_pos.y - snow_height) / snow_height, 0.6)));
+        }
 
-        blended = mix(blended, sand_colour_rgba, 1.f - min(v_pos.y / sand_height, 1.f));
+        blended = mix(blended, sand_colour, 1.f - min(v_pos.y / sand_height, 1.f));
 
-        frag = vec4(ambient + diffuse + specular, 1.f) * blended;
+        frag = vec4((ambient + diffuse + specular) * blended, 1.f);
     }
     )";
 

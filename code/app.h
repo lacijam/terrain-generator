@@ -2,6 +2,7 @@
 #define APP_H
 
 #include <thread>
+#include <random>
 
 #include "types.h"
 #include "maths.h"
@@ -59,6 +60,7 @@ struct world_generation_parameters {
     real32 elevation_power;
     real32 y_scale;
     real32 sand_height;
+    real32 stone_height;
     real32 snow_height;
     real32 ambient_strength;
     real32 diffuse_strength;
@@ -66,12 +68,14 @@ struct world_generation_parameters {
     V3 water_pos;
     V3 grass_colour;
     V3 sand_colour;
+    V3 stone_colour;
     V3 snow_colour;
     V3 slope_colour;
     V3 water_colour;
     V3 light_colour;
     V3 skybox_colour;
     s32 max_octaves;
+    u32 seed;
     u32 tree_count;
     u32 tree_min_height;
     u32 tree_max_height;
@@ -92,8 +96,10 @@ struct TerrainShader {
     u32 grass_colour;
     u32 slope_colour;
     u32 sand_colour;
+    u32 stone_colour;
     u32 snow_colour;
     u32 sand_height;
+    u32 stone_height;
     u32 snow_height;
     u32 view_position;
 };
@@ -134,7 +140,6 @@ struct RGB {
 };
 
 struct TextureMapData {
-    static const u32 MAX_RESOLUTION = 16384;
     u32 resolution;
     u32 fbo, texture;
     RGB *pixels;
@@ -157,12 +162,11 @@ struct LODDataInfo {
 
 struct Chunk {
     Vertex* vertices;
-    Vertex* optimized_vertices;
     bool32* searched; // Used to check if a vertex has been checned when optimizing.
     QuadIndices* lods;
     LODDataInfo *lod_data_infos;
-    u64 lod_indices_count;
     V3 world_pos;
+    u64 lod_indices_count;
     u64 vertices_count;
     u32 x, y;
     u32 vbo, ebo;
@@ -171,13 +175,16 @@ struct Chunk {
 struct ExportSettings {
     bool32 with_normals;
     bool32 texture_map;
+    bool32 specular_map;
     bool32 lods;
+    bool32 seperate_chunks;
 };
 
 struct LODSettings {
     u32 *details;
     u32 max_details_count; // Size of the array
     u32 max_available_count; // Number of possible LODs for the chunk size.
+    u32 max_detail_multiplier; // The maximum multiplier to generate details.
     u32 details_in_use; // Current amount of LODs being used.
     u32 detail_multiplier;
 };
@@ -197,12 +204,14 @@ struct app_state {
 
     ExportSettings export_settings;
     TextureMapData texture_map_data;
+    TextureMapData specular_map_data;
 
     Camera cur_cam;
 
     WaterFrameBuffers water_frame_buffers;
 
     std::thread *generation_threads;
+    std::mt19937 rng;
 
     LODSettings lod_settings;
     Chunk *chunks;
