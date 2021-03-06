@@ -55,7 +55,8 @@ GLF(BindFramebuffer, BINDFRAMEBUFFER);\
 GLF(GenFramebuffers, GENFRAMEBUFFERS);\
 GLF(RenderbufferStorage, RENDERBUFFERSTORAGE);\
 GLF(FramebufferRenderbuffer, FRAMEBUFFERRENDERBUFFER);\
-GLF(BufferSubData, BUFFERSUBDATA);
+GLF(BufferSubData, BUFFERSUBDATA);\
+GLF(FramebufferTexture2D, FRAMEBUFFERTEXTURE2D);
 GL_FUNCS
 #undef GLF
 

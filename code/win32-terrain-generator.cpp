@@ -39,12 +39,24 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	return TRUE;
 }
 
+real64 GetHighResolutionTime(LARGE_INTEGER freq)
+{
+	LARGE_INTEGER time;
+	QueryPerformanceCounter(&time);
+	time.QuadPart *= 1000000;
+	time.QuadPart /= freq.QuadPart;
+	return time.QuadPart / 1000.;
+}
+
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
 #ifdef _DEBUG
 	AllocConsole();
 	freopen("CONOUT$", "w", stdout);
 #endif
+
+	LARGE_INTEGER freq;
+	QueryPerformanceFrequency(&freq);
 
     WNDCLASSEXA window_class = {};
 	window_class.cbSize = sizeof(WNDCLASSEX);
@@ -92,14 +104,17 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	
 	if (memory.permenant_storage) {
 		real64 dt = 0;
+		real64 dt_elapsed = 0;
 		running = true;
+
+		const u32 FPS = 60;
+		const real32 ms_per_frame = 1000. / FPS;
 
 		while (running) {
 			MSG msg;
 
-			LARGE_INTEGER start, freq;
-			QueryPerformanceCounter(&start);
-			QueryPerformanceFrequency(&freq);
+			real64 start;
+			start = GetHighResolutionTime(freq);
 
 			app_input input = {};
 			app_window_info window_info = {};
@@ -145,16 +160,16 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			window_info.h = client.bottom;
 			window_info.resize = window_resized;
 			window_info.running = running;
-			app_update_and_render(dt, &input, &memory, &window_info);
+			
+			app_update_and_render(ms_per_frame / 1000.f, &input, &memory, &window_info);
 
-			SwapBuffers(wglGetCurrentDC());
+			real64 finish = GetHighResolutionTime(freq);
+			dt = finish - start;
 
-			LARGE_INTEGER finish, elapsed;
-			QueryPerformanceCounter(&finish);
-			elapsed.QuadPart = finish.QuadPart - start.QuadPart;
-			elapsed.QuadPart *= 1000000;
-			elapsed.QuadPart /= freq.QuadPart;
-			dt = elapsed.QuadPart / 1000000.;
+			if (dt < ms_per_frame) {
+				while (GetHighResolutionTime(freq) - start < ms_per_frame);
+				SwapBuffers(wglGetCurrentDC());
+			}
 		}
 	}
 

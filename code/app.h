@@ -7,6 +7,7 @@
 #include "types.h"
 #include "maths.h"
 #include "camera.h"
+#include "object.h"
 
 #define Kilobytes(value) ((value) * 1024ULL)
 #define Megabytes(value) (Kilobytes(value) * 1024ULL)
@@ -54,6 +55,8 @@ struct app_window_info {
 };
 
 struct world_generation_parameters {
+    real32 x_offset;
+    real32 z_offset;
     real32 scale;
     real32 lacunarity;
     real32 persistence;
@@ -64,7 +67,7 @@ struct world_generation_parameters {
     real32 snow_height;
     real32 ambient_strength;
     real32 diffuse_strength;
-    real32 specular_strength; 
+    real32 specular_strength;
     V3 water_pos;
     V3 grass_colour;
     V3 sand_colour;
@@ -74,12 +77,18 @@ struct world_generation_parameters {
     V3 water_colour;
     V3 light_colour;
     V3 skybox_colour;
+    V3 rock_colour;
+    V3 tree_colour;
     s32 max_octaves;
     u32 seed;
     u32 tree_count;
     u32 tree_min_height;
     u32 tree_max_height;
+    u32 rock_count;
+    u32 rock_min_height;
+    u32 rock_max_height;
     u32 max_trees;
+    u32 max_rocks;
 };
 
 struct TerrainShader {
@@ -87,6 +96,8 @@ struct TerrainShader {
     u32 projection;
     u32 view;
     u32 model;
+    u32 light_space_matrix;
+    u32 shadow_map;
     u32 plane;
     u32 ambient_strength;
     u32 diffuse_strength;
@@ -109,8 +120,7 @@ struct SimpleShader {
     u32 projection;
     u32 view;
     u32 model;
-    u32 object_colour;
-    u32 plane;
+    u32 diffuse;
 };
 
 struct WaterShader {
@@ -121,6 +131,13 @@ struct WaterShader {
     u32 reflection_texture;
     u32 refraction_texture;
     u32 water_colour;
+};
+
+struct DepthShader {
+    u32 program;
+    u32 projection;
+    u32 view;
+    u32 model;
 };
 
 struct WaterFrameBuffers {
@@ -195,6 +212,7 @@ struct app_state {
     TerrainShader terrain_shader;
     SimpleShader simple_shader;
     WaterShader water_shader;
+    DepthShader depth_shader;
 
     world_generation_parameters custom_parameters;
     world_generation_parameters green_plains_parameters;
@@ -208,6 +226,8 @@ struct app_state {
 
     Camera cur_cam;
 
+    Object *rock;
+
     WaterFrameBuffers water_frame_buffers;
 
     std::thread *generation_threads;
@@ -216,7 +236,8 @@ struct app_state {
     LODSettings lod_settings;
     Chunk *chunks;
     Chunk* current_chunk;
-    V3* trees;
+    V3 *trees;
+    V3 *rocks_pos, *rocks_scale, *rocks_rotation;
     u32 chunk_count;
     u32 chunk_tile_length;
     u32 chunk_vertices_length;
@@ -226,6 +247,7 @@ struct app_state {
     V3 light_pos;
     
     u32 triangle_vao, quad_vbo, quad_ebo;
+    u32 depth_map_fbo, depth_map;
 
     bool32 wireframe;
     bool32 flying;

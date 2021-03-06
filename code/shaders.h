@@ -7,13 +7,16 @@ namespace Shaders {
 
     layout (location = 0) in vec3 a_pos;
     layout (location = 1) in vec3 a_nor;
+
     out vec3 v_pos;
     out vec3 v_nor;
     out vec3 v_light_pos;
+    out vec4 frag_pos_light_space;
 
     uniform mat4 projection;
     uniform mat4 view;
     uniform mat4 model;
+    uniform mat4 light_space_matrix;
     
     uniform vec4 plane; 
 
@@ -23,10 +26,11 @@ namespace Shaders {
 
         v_pos = vec3(world_position);
         v_nor = a_nor;
+        frag_pos_light_space = light_space_matrix * world_position;
 
         gl_ClipDistance[0] = dot(world_position, plane);
 
-        gl_Position = projection * view * model * vec4(a_pos, 1.0);
+        gl_Position = projection * view * world_position;
     }
     )";
 
@@ -35,6 +39,7 @@ namespace Shaders {
 		
     in vec3 v_pos;
     in vec3 v_nor;
+    in vec4 frag_pos_light_space;
 
     uniform float ambient_strength;
     uniform float diffuse_strength;
@@ -47,13 +52,14 @@ namespace Shaders {
     uniform vec3 stone_colour;
     uniform vec3 snow_colour;
     uniform vec3 slope_colour;
+    uniform vec3 view_position;
 
     uniform float water_height;
     uniform float sand_height;
     uniform float snow_height;
     uniform float stone_height;
 
-    uniform vec3 view_position;
+    uniform sampler2D shadow_map;
 
     out vec4 frag;
 
@@ -62,33 +68,47 @@ namespace Shaders {
         return 1.0 - pow(1.0 - pow(x, 1./b), b);
     }
 
+    float shadow_calculation(vec4 f_pos_light_space, vec3 light_dir)
+    {
+        vec3 proj_coords = frag_pos_light_space.xyz / frag_pos_light_space.w;
+        proj_coords = proj_coords * 0.5f + 0.5f;
+
+        if (proj_coords.z > 1.f)
+            return 0.f;
+
+        float closest_depth = texture(shadow_map, proj_coords.xy).r;
+        float current_depth = proj_coords.z;
+        float bias = max(0.05f * (1.f - dot(v_nor, light_dir)), 0.005f);
+        return current_depth - bias > closest_depth ? 1.f : 0.f;
+    }
+
     void main()
     {
-        //float dist = distance(light_pos, v_pos);
-        //float attenuation = 1.0f / (1.0f + 0.001 * dist + 0.0001 * dist * dist);
-        float attenuation = 1.0f;
-        
         vec3 ambient = ambient_strength * light_colour;
 
         vec3 light_dir = normalize(light_pos - v_pos);
         float diff = max(dot(v_nor, light_dir), 0.0f);
-        vec3 diffuse = diff * light_colour * attenuation * diffuse_strength;
+        vec3 diffuse = diff * light_colour * diffuse_strength;
 
         vec3 view_dir = normalize(view_position + v_pos);
-        vec3 reflect_dir = reflect(-light_dir, v_nor);
-        float spec = pow(max(dot(view_dir, reflect_dir), 0.f), 3);
+        vec3 halfway_dir = normalize(light_dir + view_dir);
+        float spec = pow(max(dot(v_nor, halfway_dir), 0.f), 3);
         vec3 specular = specular_strength * spec * light_colour;
         
-        vec3 blended = mix(grass_colour, slope_colour, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
-        blended = mix(blended, stone_colour, min(1, v_pos.y / stone_height));
+        vec3 terrain_colour = mix(grass_colour, slope_colour, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
+        terrain_colour = mix(terrain_colour, stone_colour, min(1, v_pos.y / stone_height));
 
         if (v_pos.y > snow_height) {
-            blended = mix(blended, snow_colour, min(1, bias((v_pos.y - snow_height) / snow_height, 0.6)));
+            terrain_colour = mix(terrain_colour, snow_colour, min(1, bias((v_pos.y - snow_height) / snow_height, 0.6)));
         }
 
-        blended = mix(blended, sand_colour, 1.f - min(v_pos.y / sand_height, 1.f));
+        terrain_colour = mix(terrain_colour, sand_colour, 1.f - min(v_pos.y / sand_height, 1.f));
 
-        frag = vec4((ambient + diffuse + specular) * blended, 1.f);
+        float shadow = shadow_calculation(frag_pos_light_space, light_dir);
+        vec3 lighting = (ambient + (1.f - shadow) * (diffuse + specular));        
+        terrain_colour *= lighting;
+        terrain_colour = pow(terrain_colour, vec3(1.f / 2.2f));
+        frag = vec4(terrain_colour, 1.f);
     }
     )";
 
@@ -112,9 +132,11 @@ namespace Shaders {
 
     out vec4 frag;
 
+    uniform vec3 diffuse;
+
     void main()
     {
-        frag = vec4(1.0f);
+        frag = vec4(diffuse, 1.f);
     }
     )";
 
@@ -161,6 +183,29 @@ namespace Shaders {
 
         frag = mix(reflect_colour, refract_colour, 0.5f);
         frag = mix(frag, water_colour_rgba, 0.5f);
+    }
+    )";
+
+    const char *const DEPTH_VERTEX_SHADER_SOURCE = R"(
+    #version 330
+
+    layout (location = 0) in vec3 a_pos;
+
+    uniform mat4 projection;
+    uniform mat4 view;
+    uniform mat4 model;
+
+    void main()
+    {
+        gl_Position = projection * view * model * vec4(a_pos, 1.0);
+    }
+    )";
+
+    const char *const DEPTH_FRAGMENT_SHADER_SOURCE = R"(
+    #version 330
+
+    void main()
+    {
     }
     )";
 };
