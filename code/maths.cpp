@@ -8,6 +8,14 @@ V3& operator+=(V3 &v, V3 w)
     return v;
 }
 
+V3 &operator+=(V3 &v, real32 w)
+{
+	v.x += w;
+	v.y += w;
+	v.z += w;
+	return v;
+}
+
 V3& operator-=(V3 &v, V3 w)
 {
     v.x -= w.x;

@@ -58,6 +58,21 @@ void init_lod_detail_levels(LODSettings *lod_settings, u32 chunk_tile_length)
 	lod_settings->details_in_use = lod_settings->max_available_count;
 }
 
+static real32 noise(V2 p)
+{
+	return perlin(p);
+}
+
+static float pattern(V2 p)
+{
+	V2 q;
+	V2 a = { 0.f, 0.f };
+	V2 b = { 5.2f, 1.3f };
+	q.x = noise(p + 4.f * a);
+	q.y = noise(p + 4.f * b);
+	return noise(p + 4.f * q);
+}
+
 static void app_generate_terrain_chunk(
 	app_state *state
 	, app_memory *memory
@@ -82,7 +97,7 @@ static void app_generate_terrain_chunk(
 				real32 total_amplitude = 0;
 
 				for (u32 octave = 0; octave < state->params->max_octaves; octave++) {
-					total += (0.5f + perlin({ (real32)(frequency * x), (real32)(frequency * y) })) * amplitude;
+					total += (0.5f + noise({ (real32)(frequency * x), (real32)(frequency * y) })) * amplitude;
 					total_amplitude += amplitude;
 					amplitude *= state->params->persistence;
 					frequency *= state->params->lacunarity;
@@ -123,11 +138,13 @@ static void app_generate_terrain_chunk(
 				Vertex *d = &chunk->vertices[v2];
 
 				V3 cp = v3_cross(b->pos - a->pos, c->pos - a->pos);
+
 				a->nor += cp;
 				b->nor += cp;
 				c->nor += cp;
 
 				cp = v3_cross(a->pos - d->pos, c->pos - d->pos);
+
 				d->nor += cp;
 				a->nor += cp;
 				c->nor += cp;
@@ -451,6 +468,7 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 	glUniform1f(state->terrain_shader.ambient_strength, state->params->ambient_strength);
 	glUniform1f(state->terrain_shader.diffuse_strength, state->params->diffuse_strength);
 	glUniform1f(state->terrain_shader.specular_strength, state->params->specular_strength);
+	glUniform1f(state->terrain_shader.gamma_correction, state->params->gamma_correction);
 
 	glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
 	glUniform1f(state->terrain_shader.sand_height, state->params->sand_height);
@@ -1012,6 +1030,7 @@ static void export_terrain(app_state *state)
 		glUniform1f(state->terrain_shader.ambient_strength, state->params->ambient_strength);
 		glUniform1f(state->terrain_shader.diffuse_strength, state->params->diffuse_strength);
 		glUniform1f(state->terrain_shader.specular_strength, 0.f);
+		glUniform1f(state->terrain_shader.diffuse_strength, state->params->gamma_correction);
 
 		glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
 		glUniform1f(state->terrain_shader.sand_height, state->params->sand_height);
@@ -1232,7 +1251,7 @@ static void app_render(app_state *state, app_memory *memory)
 	real32 light_projection[16], light_view[16];
 	mat4_identity(light_projection);
 	mat4_identity(light_view);
-	mat4_ortho(light_projection, -10.f, 10.f, -10.f, 10.f, 1.f, 7.5f);
+	mat4_ortho(light_projection, -10.f, 10.f, -10.f, 10.f, 1.f, 1000.f);
 	mat4_look_at(light_view, state->light_pos, { state->world_tile_length / 2.f, 0.f, state->world_tile_length / 2.f }, { 0.f, 1.f, 0.f });
 
 	real32 light_space_matrix[16];
@@ -1467,6 +1486,10 @@ static void app_render(app_state *state, app_memory *memory)
 			ImGui::SliderFloat("ambient strength", &state->params->ambient_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 			ImGui::SliderFloat("diffuse strength", &state->params->diffuse_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 			ImGui::SliderFloat("specular strength", &state->params->specular_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("gamma correction", &state->params->gamma_correction, 0.f, 3.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("light x", &state->light_pos.E[0], -5000.f, 5000.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("light y", &state->light_pos.E[1], -5000.f, 5000.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("light z", &state->light_pos.E[2], -5000.f, 5000.f, "%.2f", ImGuiSliderFlags_None);
 			ImGui::TreePop();
 		}
 
@@ -1654,6 +1677,7 @@ void app_init(app_state *state, app_memory *memory)
 	state->terrain_shader.ambient_strength = glGetUniformLocation(state->terrain_shader.program, "ambient_strength");
 	state->terrain_shader.diffuse_strength = glGetUniformLocation(state->terrain_shader.program, "diffuse_strength");
 	state->terrain_shader.specular_strength = glGetUniformLocation(state->terrain_shader.program, "specular_strength");
+	state->terrain_shader.gamma_correction = glGetUniformLocation(state->terrain_shader.program, "gamma_correction");
 	state->terrain_shader.view_position = glGetUniformLocation(state->terrain_shader.program, "view_position");
 
 	state->simple_shader.program = create_shader(Shaders::SIMPLE_VERTEX_SHADER_SOURCE, Shaders::SIMPLE_FRAGMENT_SHADER_SOURCE);
@@ -1677,10 +1701,10 @@ void app_init(app_state *state, app_memory *memory)
 	// ---End of shaders
 
 	// ---Terrain data.
-	state->chunk_tile_length = 128;
+	state->chunk_tile_length = 256;
 	state->chunk_vertices_length = state->chunk_tile_length + 1;
 	state->chunk_count = 0;
-	state->world_width = 3;
+	state->world_width = 10;
 	state->world_area = state->world_width * state->world_width;
 	state->world_tile_length = state->chunk_tile_length * state->world_width;
 	state->generation_threads = (std::thread *)my_malloc(memory, state->world_area * sizeof(std::thread));
@@ -1747,6 +1771,7 @@ void app_init(app_state *state, app_memory *memory)
 	state->custom_parameters.ambient_strength = 1.f;
 	state->custom_parameters.diffuse_strength = 0.3f;
 	state->custom_parameters.specular_strength = 0.35f;
+	state->custom_parameters.gamma_correction = 2.2f;
 	state->custom_parameters.light_colour = { 1.f, 0.8f, 0.7f };
 	state->custom_parameters.grass_colour = { 0.15f, 0.23f, 0.13f };
 	state->custom_parameters.sand_colour = { 0.8f, 0.81f, 0.55f };
@@ -1814,7 +1839,7 @@ void app_init(app_state *state, app_memory *memory)
 	camera_frustrum(&state->cur_cam, state->window_info.w, state->window_info.h);
 	camera_ortho(&state->cur_cam, state->window_info.w, state->window_info.h);
 
-	state->light_pos = { ((real32)state->chunk_tile_length / 2) * state->world_width * -1.f, 100.f, ((real32)state->chunk_tile_length / 2) * state->world_width * -1.f};
+	state->light_pos = { ((real32)state->chunk_tile_length / 2) * state->world_width * 1.f, 100.f, ((real32)state->chunk_tile_length / 2) * state->world_width * 1.f};
 	//state->light_pos = { ((real32)state->chunk_tile_length / 2) * state->world_width, 5000.f, ((real32)state->chunk_tile_length / 2) * state->world_width };
 
 	state->export_settings = {};

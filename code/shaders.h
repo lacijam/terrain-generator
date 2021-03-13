@@ -44,6 +44,7 @@ namespace Shaders {
     uniform float ambient_strength;
     uniform float diffuse_strength;
     uniform float specular_strength;
+    uniform float gamma_correction;
 
     uniform vec3 light_pos;
     uniform vec3 light_colour;
@@ -107,7 +108,7 @@ namespace Shaders {
         float shadow = shadow_calculation(frag_pos_light_space, light_dir);
         vec3 lighting = (ambient + (1.f - shadow) * (diffuse + specular));        
         terrain_colour *= lighting;
-        terrain_colour = pow(terrain_colour, vec3(1.f / 2.2f));
+        terrain_colour = pow(terrain_colour, vec3(1.f / gamma_correction));
         frag = vec4(terrain_colour, 1.f);
     }
     )";

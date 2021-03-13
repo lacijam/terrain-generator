@@ -68,6 +68,7 @@ struct world_generation_parameters {
     real32 ambient_strength;
     real32 diffuse_strength;
     real32 specular_strength;
+    real32 gamma_correction;
     V3 water_pos;
     V3 grass_colour;
     V3 sand_colour;
@@ -102,6 +103,7 @@ struct TerrainShader {
     u32 ambient_strength;
     u32 diffuse_strength;
     u32 specular_strength;
+    u32 gamma_correction;
     u32 light_pos;
     u32 light_colour;
     u32 grass_colour;
