@@ -109,6 +109,7 @@ namespace Shaders {
         vec3 lighting = (ambient + (1.f - shadow) * (diffuse + specular));        
         terrain_colour *= lighting;
         terrain_colour = pow(terrain_colour, vec3(1.f / gamma_correction));
+
         frag = vec4(terrain_colour, 1.f);
     }
     )";

@@ -98,11 +98,15 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	// Setup style
     ImGui::StyleColorsClassic();
 
-	app_memory memory = {};
-	memory.permenant_storage_size = Megabytes(4000);
-	memory.permenant_storage = VirtualAlloc(0, memory.permenant_storage_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-	
-	if (memory.permenant_storage) {
+	RECT client;
+	GetClientRect(hwnd, &client);
+	u32 w = client.right;
+	u32 h = client.bottom;
+	app_state *state = app_init(w, h);
+
+	CreateDirectory("./export", NULL);
+
+	if (state) {
 		real64 dt = 0;
 		real64 dt_elapsed = 0;
 		running = true;
@@ -151,9 +155,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			input.keyboard.fly.ended_down = keys['F'] & 0x80;
 			input.keyboard.fly.toggled = !input.keyboard.fly.started_down && keys['F'] & 0x80;
 
-			ImGui_ImplOpenGL3_NewFrame();
-			ImGui_ImplWin32_NewFrame();
-
 			RECT client;
 			GetClientRect(hwnd, &client);
 			window_info.w = client.right;
@@ -161,7 +162,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			window_info.resize = window_resized;
 			window_info.running = running;
 			
-			app_update_and_render(ms_per_frame / 1000.f, &input, &memory, &window_info);
+			app_update_and_render(ms_per_frame / 1000.f, state, &input, &window_info);
 
 			real64 finish = GetHighResolutionTime(freq);
 			dt = finish - start;
@@ -172,8 +173,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			}
 		}
 	}
-
-	VirtualFree(memory.permenant_storage, memory.permenant_storage_size, MEM_RELEASE);
 
 	ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();

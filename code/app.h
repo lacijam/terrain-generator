@@ -3,6 +3,7 @@
 
 #include <thread>
 #include <random>
+#include <vector>
 
 #include "types.h"
 #include "maths.h"
@@ -81,6 +82,8 @@ struct world_generation_parameters {
     V3 rock_colour;
     V3 tree_colour;
     s32 max_octaves;
+    u32 chunk_tile_length;
+    u32 world_width;
     u32 seed;
     u32 tree_count;
     u32 tree_min_height;
@@ -180,11 +183,9 @@ struct LODDataInfo {
 };
 
 struct Chunk {
-    Vertex* vertices;
-    bool32* searched; // Used to check if a vertex has been checned when optimizing.
-    QuadIndices* lods;
-    LODDataInfo *lod_data_infos;
-    V3 world_pos;
+    std::vector<Vertex> vertices;
+    std::vector<QuadIndices> lods;
+    std::vector<LODDataInfo> lod_data_infos;
     u64 lod_indices_count;
     u64 vertices_count;
     u32 x, y;
@@ -194,7 +195,7 @@ struct Chunk {
 struct ExportSettings {
     bool32 with_normals;
     bool32 texture_map;
-    bool32 specular_map;
+    bool32 bake_shadows;
     bool32 lods;
     bool32 seperate_chunks;
 };
@@ -232,18 +233,16 @@ struct app_state {
 
     WaterFrameBuffers water_frame_buffers;
 
-    std::thread *generation_threads;
+    std::vector<std::thread> generation_threads;
     std::mt19937 rng;
 
     LODSettings lod_settings;
-    Chunk *chunks;
+    std::vector<Chunk> chunks;
     Chunk* current_chunk;
     V3 *trees;
     V3 *rocks_pos, *rocks_scale, *rocks_rotation;
     u32 chunk_count;
-    u32 chunk_tile_length;
     u32 chunk_vertices_length;
-    u32 world_width;
     u32 world_area;
     u32 world_tile_length;
     V3 light_pos;
@@ -255,6 +254,7 @@ struct app_state {
     bool32 flying;
 };
 
-extern void app_update_and_render(real32 dt, app_input *input, app_memory *memory, app_window_info *window_info);
+extern void app_update_and_render(real32 dt, app_state *state, app_input *input, app_window_info *window_info);
+extern app_state *app_init(u32 w, u32 h);
 
 #endif
