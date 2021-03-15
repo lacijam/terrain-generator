@@ -12,7 +12,7 @@ void camera_init(Camera *cam)
 	mat4_identity(cam->ortho);
 	cam->yaw = 0;
 	cam->pitch = 0;
-	cam->vel = 300.f;
+	cam->vel = 100.f;
 	cam->look_speed = 100.f;
 	cam->fov = 60.f;
 }
@@ -20,7 +20,7 @@ void camera_init(Camera *cam)
 void camera_frustrum(Camera *cam, u32 cx, u32 cy)
 {
 	assert(cam && cx > 0 && cy > 0);
-	real32 near_clip = .5f;
+	real32 near_clip = .05f;
 	real32 far_clip = 10000.f;
 	real32 fov_y = (cam->fov * (real32)M_PI / 180.f);
 	real32 aspect = (real32)cx / cy;

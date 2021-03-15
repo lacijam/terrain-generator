@@ -10,7 +10,6 @@ namespace Shaders {
 
     out vec3 v_pos;
     out vec3 v_nor;
-    out vec3 v_light_pos;
     out vec4 frag_pos_light_space;
 
     uniform mat4 projection;
@@ -48,7 +47,7 @@ namespace Shaders {
 
     uniform vec3 light_pos;
     uniform vec3 light_colour;
-    uniform vec3 grass_colour;
+    uniform vec3 ground_colour;
     uniform vec3 sand_colour;
     uniform vec3 stone_colour;
     uniform vec3 snow_colour;
@@ -96,7 +95,7 @@ namespace Shaders {
         float spec = pow(max(dot(v_nor, halfway_dir), 0.f), 3);
         vec3 specular = specular_strength * spec * light_colour;
         
-        vec3 terrain_colour = mix(grass_colour, slope_colour, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
+        vec3 terrain_colour = mix(ground_colour, slope_colour, 1.0f - dot(v_nor, vec3(0.f, 1.f, 0.f)));
         terrain_colour = mix(terrain_colour, stone_colour, min(1, v_pos.y / stone_height));
 
         if (v_pos.y > snow_height) {
@@ -118,27 +117,56 @@ namespace Shaders {
     #version 330
 
     layout (location = 0) in vec3 a_pos;
+    layout (location = 1) in vec3 a_nor;
+
+    out vec3 v_pos;
+    out vec3 v_nor;
 
     uniform mat4 projection;
     uniform mat4 view;
     uniform mat4 model;
-
+    
     void main()
     {
-        gl_Position = projection * view * model * vec4(a_pos, 1.0);
+        vec4 world_position = model * vec4(a_pos, 1.f);
+        vec4 world_normal = model * vec4(a_nor, 0.f);
+
+        v_pos = vec3(world_position);
+        v_nor = vec3(world_normal);
+
+        gl_Position = projection * view * world_position;
     }
     )";
 
     const char *const SIMPLE_FRAGMENT_SHADER_SOURCE = R"(
     #version 330
 
+    in vec3 v_pos;
+    in vec3 v_nor;
+
     out vec4 frag;
 
-    uniform vec3 diffuse;
+    uniform float ambient_strength;
+    uniform float diffuse_strength;
+    uniform float gamma_correction;
+
+    uniform vec3 light_pos;
+    uniform vec3 light_colour;
+    uniform vec3 object_colour;
 
     void main()
     {
-        frag = vec4(diffuse, 1.f);
+        vec3 ambient = ambient_strength * light_colour;
+
+        vec3 light_dir = normalize(light_pos - v_pos);
+        float diff = max(dot(v_nor, light_dir), 0.0f);
+        vec3 diffuse = diff * light_colour * diffuse_strength;
+
+        vec3 lighting = (ambient + diffuse);        
+        vec3 colour = object_colour * lighting;
+        colour = pow(colour, vec3(1.f / gamma_correction));
+
+        frag = vec4(colour, 1.f);
     }
     )";
 

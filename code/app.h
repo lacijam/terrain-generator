@@ -71,7 +71,7 @@ struct world_generation_parameters {
     real32 specular_strength;
     real32 gamma_correction;
     V3 water_pos;
-    V3 grass_colour;
+    V3 ground_colour;
     V3 sand_colour;
     V3 stone_colour;
     V3 snow_colour;
@@ -109,7 +109,7 @@ struct TerrainShader {
     u32 gamma_correction;
     u32 light_pos;
     u32 light_colour;
-    u32 grass_colour;
+    u32 ground_colour;
     u32 slope_colour;
     u32 sand_colour;
     u32 stone_colour;
@@ -125,7 +125,12 @@ struct SimpleShader {
     u32 projection;
     u32 view;
     u32 model;
-    u32 diffuse;
+    u32 ambient_strength;
+    u32 diffuse_strength;
+    u32 gamma_correction;
+    u32 light_pos;
+    u32 light_colour;
+    u32 object_colour;
 };
 
 struct WaterShader {
@@ -237,10 +242,10 @@ struct app_state {
     std::mt19937 rng;
 
     LODSettings lod_settings;
-    std::vector<Chunk> chunks;
+    std::vector<Chunk*> chunks;
     Chunk* current_chunk;
     V3 *trees;
-    V3 *rocks_pos, *rocks_scale, *rocks_rotation;
+    V3 *rocks_pos, *rocks_size, *rocks_rotation;
     u32 chunk_count;
     u32 chunk_vertices_length;
     u32 world_area;
@@ -252,6 +257,9 @@ struct app_state {
 
     bool32 wireframe;
     bool32 flying;
+    
+    bool general_settings_open;
+    bool terrain_settings_open;
 };
 
 extern void app_update_and_render(real32 dt, app_state *state, app_input *input, app_window_info *window_info);

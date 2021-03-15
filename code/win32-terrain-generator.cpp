@@ -70,7 +70,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 	HWND hwnd = CreateWindowExA(
 		NULL, "TerrainGenerator", "Terrain Generator", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT
-		, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, GetModuleHandle(NULL), 0
+		, 1366, 768, NULL, NULL, GetModuleHandle(NULL), 0
 	);
 
 	if (!hwnd) {
@@ -82,7 +82,19 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	glrc = win32_create_gl_context(hwnd);
 
 	ShowWindow(hwnd, nShowCmd);
+
+	RECT rc;
+
+	GetWindowRect(hwnd, &rc);
+
+	int xPos = (GetSystemMetrics(SM_CXSCREEN) - rc.right) / 2;
+	int yPos = (GetSystemMetrics(SM_CYSCREEN) - rc.bottom) / 2;
+
+	SetWindowPos(hwnd, 0, xPos, yPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+
 	UpdateWindow(hwnd);
+
+	CreateDirectory("./export", NULL);
 
 	IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -103,8 +115,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	u32 w = client.right;
 	u32 h = client.bottom;
 	app_state *state = app_init(w, h);
-
-	CreateDirectory("./export", NULL);
 
 	if (state) {
 		real64 dt = 0;
@@ -162,6 +172,9 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			window_info.resize = window_resized;
 			window_info.running = running;
 			
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplWin32_NewFrame();
+
 			app_update_and_render(ms_per_frame / 1000.f, state, &input, &window_info);
 
 			real64 finish = GetHighResolutionTime(freq);
@@ -172,6 +185,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				SwapBuffers(wglGetCurrentDC());
 			}
 		}
+
+		delete state;
 	}
 
 	ImGui_ImplOpenGL3_Shutdown();
