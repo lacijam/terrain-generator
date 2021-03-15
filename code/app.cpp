@@ -45,7 +45,7 @@ void init_lod_detail_levels(LODSettings *lod_settings, u32 chunk_tile_length)
 	for (u32 i = 0; i < lod_settings->max_details_count; i++) {
 		lod_settings->max_available_count = i;
 
-		if (lod_settings->details[i] > chunk_tile_length) {
+		if (lod_settings->details[i] >= chunk_tile_length) {
 			break;
 		}
 	}
@@ -124,7 +124,7 @@ static void app_generate_terrain_chunk(
 				Vertex *d = &chunk->vertices[v2];
 
 				V3 cp = v3_cross(b->pos - a->pos, c->pos - a->pos);
-
+				
 				a->nor += cp;
 				b->nor += cp;
 				c->nor += cp;
@@ -1500,7 +1500,7 @@ static void init_terrain(app_state *state, u32 chunk_tile_length, u32 world_widt
 	state->lod_settings.max_detail_multiplier = 1;
 
 	// Calculate the maximum possible detail multiplier for the chunk size.
-	while (pow(2, 5 + state->lod_settings.max_detail_multiplier) < state->params->chunk_tile_length) {
+	while (pow(2, 5 + state->lod_settings.max_detail_multiplier) <= state->params->chunk_tile_length) {
 		state->lod_settings.max_detail_multiplier++;
 	}
 
@@ -1640,16 +1640,16 @@ app_state *app_init(u32 w, u32 h)
 	state->custom_parameters.world_width = 3;
 	state->custom_parameters.x_offset = 10.f;
 	state->custom_parameters.z_offset = 10.f;
-	state->custom_parameters.scale = 2.f;
+	state->custom_parameters.scale = 3.f;
 	state->custom_parameters.lacunarity = 1.65f;
 	state->custom_parameters.persistence = 0.5f;
 	state->custom_parameters.elevation_power = 3.f;
-	state->custom_parameters.y_scale = 40.f;
+	state->custom_parameters.y_scale = 35.f;
 	state->custom_parameters.max_octaves = 10;
 	state->custom_parameters.water_pos.x = 0;
-	state->custom_parameters.water_pos.y = 1.5f * state->custom_parameters.scale;
+	state->custom_parameters.water_pos.y = 1.2f * state->custom_parameters.scale;
 	state->custom_parameters.water_pos.z = 0;
-	state->custom_parameters.sand_height = 2.f * state->custom_parameters.scale;
+	state->custom_parameters.sand_height = 1.5f * state->custom_parameters.scale;
 	state->custom_parameters.stone_height = 20.f * state->custom_parameters.scale;
 	state->custom_parameters.snow_height = 50.f * state->custom_parameters.scale;
 	state->custom_parameters.ambient_strength = 0.5f;
@@ -1662,7 +1662,7 @@ app_state *app_init(u32 w, u32 h)
 	state->custom_parameters.stone_colour = { 0.2f, 0.2f, 0.2f };
 	state->custom_parameters.snow_colour = { 0.8f, 0.8f, 0.8f };
 	state->custom_parameters.slope_colour = { 0.45f, 0.5f, 0.35f };
-	state->custom_parameters.water_colour = { .25f, .25f, 0.35f };
+	state->custom_parameters.water_colour = { .31f, .31f, 0.35f };
 	state->custom_parameters.skybox_colour = { 0.65f, 0.65f, 1.f };
 	state->custom_parameters.tree_colour = { 0.65f, 0.65f, 0.3f };
 	state->custom_parameters.rock_colour = { 0.3f, 0.3f, 0.3f };
