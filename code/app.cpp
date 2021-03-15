@@ -63,8 +63,8 @@ static float pattern(V2 p)
 	V2 q;
 	V2 a = { 0.f, 0.f };
 	V2 b = { 5.2f, 1.3f };
-	q.x = noise(p + 12.f * a);
-	q.y = noise(p + 2.f * b);
+	q.x = noise(p + 4.f * a);
+	q.y = noise(p + 4.f * b);
 	return noise(p + q);
 }
 
@@ -461,14 +461,12 @@ static void app_render_lights_and_features(app_state *state)
 			continue;
 		}
 
-		const real32 scale = 1.f;
-
 		mat4_identity(model);
 		mat4_translate(model, state->rocks_pos[i].x, state->rocks_pos[i].y, state->rocks_pos[i].z);
 		mat4_rotate_x(model, state->rocks_rotation[i].x);
 		mat4_rotate_y(model, state->rocks_rotation[i].y);
 		mat4_rotate_z(model, state->rocks_rotation[i].z);
-		mat4_scale(model, state->rocks_size[i].x * scale, state->rocks_size[i].y * scale, state->rocks_size[i].z * scale);
+		mat4_scale(model, state->params->rock_size, state->params->rock_size, state->params->rock_size);
 
 		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
 		glDrawElements(GL_TRIANGLES, 3 * state->rock->polygons.size(), GL_UNSIGNED_INT, 0);
@@ -537,14 +535,6 @@ static void generate_rocks(app_state *state)
 			state->rocks_rotation[i].x = (acos(v3_dot(v->nor, { 1, 0, 0 })) * 180.f/ M_PI) ;
 			state->rocks_rotation[i].y = rotation_distr(state->rng);
 			state->rocks_rotation[i].z = (acos(v3_dot(v->nor, { 0, 0, 1 })) * 180.f / M_PI);
-
-			std::uniform_real_distribution<> scale_distr(0.001, 0.5);
-
-			const real32 scale = scale_distr(state->rng) * state->params->scale;
-
-			state->rocks_size[i].x = scale;
-			state->rocks_size[i].y = scale;
-			state->rocks_size[i].z = scale;
 		}
 	}
 }
@@ -1391,6 +1381,13 @@ static void app_render(app_state *state)
 				ImGui::TreePop();
 			}
 
+			if (ImGui::TreeNode("Rock")) {
+				ImGui::SliderFloat("red", &state->params->rock_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->params->rock_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->params->rock_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::TreePop();
+			}
+
 			ImGui::TreePop();
 		}
 
@@ -1421,6 +1418,7 @@ static void app_render(app_state *state)
 
 			if (ImGui::TreeNode("Rocks")) {
 				ImGui::SliderInt("rock count", (int *)&state->params->rock_count, 0, state->params->max_rocks, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("rock size", &state->params->rock_size, 0.1f, 5.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::SliderInt("rock min height", (int *)&state->params->rock_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderInt("rock max height", (int *)&state->params->rock_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
 
@@ -1664,15 +1662,16 @@ app_state *app_init(u32 w, u32 h)
 	state->custom_parameters.stone_colour = { 0.2f, 0.2f, 0.2f };
 	state->custom_parameters.snow_colour = { 0.8f, 0.8f, 0.8f };
 	state->custom_parameters.slope_colour = { 0.45f, 0.5f, 0.35f };
-	state->custom_parameters.water_colour = { .2f, .2f, 0.35f };
+	state->custom_parameters.water_colour = { .25f, .25f, 0.35f };
 	state->custom_parameters.skybox_colour = { 0.65f, 0.65f, 1.f };
 	state->custom_parameters.tree_colour = { 0.65f, 0.65f, 0.3f };
-	state->custom_parameters.rock_colour = { 0.5f, 0.5f, 0.5f };
+	state->custom_parameters.rock_colour = { 0.3f, 0.3f, 0.3f };
 	state->custom_parameters.tree_count = 0;
 	state->custom_parameters.tree_min_height = state->custom_parameters.sand_height;
 	state->custom_parameters.tree_max_height = state->custom_parameters.snow_height;
 	state->custom_parameters.max_trees = 10000;
 	state->custom_parameters.rock_count = 0;
+	state->custom_parameters.rock_size = 1.f;
 	state->custom_parameters.rock_min_height = state->custom_parameters.sand_height;
 	state->custom_parameters.rock_max_height = state->custom_parameters.snow_height;
 	state->custom_parameters.max_rocks = 1000;
@@ -1713,7 +1712,6 @@ app_state *app_init(u32 w, u32 h)
 	state->trees = (V3 *)malloc(state->params->max_trees * sizeof V3);
 	state->rocks_pos = (V3 *)malloc(state->params->max_rocks * sizeof V3);
 	state->rocks_rotation = (V3 *)malloc(state->params->max_rocks * sizeof V3);
-	state->rocks_size = (V3 *)malloc(state->params->max_rocks * sizeof V3);
 
 	state->rng = std::mt19937(state->params->seed);
 

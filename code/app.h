@@ -70,6 +70,7 @@ struct world_generation_parameters {
     real32 diffuse_strength;
     real32 specular_strength;
     real32 gamma_correction;
+    real32 rock_size;
     V3 water_pos;
     V3 ground_colour;
     V3 sand_colour;
@@ -88,10 +89,11 @@ struct world_generation_parameters {
     u32 tree_count;
     u32 tree_min_height;
     u32 tree_max_height;
+    u32 tree_size;
+    u32 max_trees;
     u32 rock_count;
     u32 rock_min_height;
     u32 rock_max_height;
-    u32 max_trees;
     u32 max_rocks;
 };
 
@@ -245,7 +247,7 @@ struct app_state {
     std::vector<Chunk*> chunks;
     Chunk* current_chunk;
     V3 *trees;
-    V3 *rocks_pos, *rocks_size, *rocks_rotation;
+    V3 *rocks_pos, *rocks_rotation;
     u32 chunk_count;
     u32 chunk_vertices_length;
     u32 world_area;
