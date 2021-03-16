@@ -1226,11 +1226,14 @@ static void app_render(app_state *state)
 
 		std::string s = "Current preset: " + state->cur_preset.name;
 		ImGui::Text(s.c_str());
-		if (ImGui::Button("Save")) {
-			save_custom_preset_to_file(&state->cur_preset);
-		} 
 
-		ImGui::SameLine();
+		if (state->cur_preset.name != "default") {
+			if (ImGui::Button("Save")) {
+				save_custom_preset_to_file(&state->cur_preset);
+			}
+
+			ImGui::SameLine();
+		}
 
 		if (ImGui::Button("Save to new")) {
 			state->show_save_new_prompt = true;
@@ -1239,20 +1242,31 @@ static void app_render(app_state *state)
 		if (state->show_save_new_prompt) {
 			ImGui::Separator();
 
+			static const char *empty_error = "Please enter a filename";
+			static const char *default_error = "'default' is a reserved name";
+			
+			static bool show_empty_error = false;
+			static bool show_default_error = false;
+	
 			ImGui::InputText("Name", &state->new_preset_name);
 
 			if (ImGui::Button("Confirm")) {
-				preset_file p_file = {};
-				p_file.name = state->new_preset_name;
-				p_file.params = state->cur_preset.params;
+				show_empty_error = state->new_preset_name == "";
+				show_default_error = state->new_preset_name == "default";
 
-				state->presets.push_back(new preset_file(p_file));
-				state->cur_preset = *state->presets.back();
-				state->new_preset_name = "";
+				 if (!show_empty_error && !show_default_error) {
+					preset_file p_file = {};
+					p_file.name = state->new_preset_name;
+					p_file.params = state->cur_preset.params;
 
-				save_custom_preset_to_file(state->presets.back());
+					state->presets.push_back(new preset_file(p_file));
+					state->cur_preset = *state->presets.back();
+					state->new_preset_name = "";
 
-				state->show_save_new_prompt = false;
+					save_custom_preset_to_file(state->presets.back());
+
+					state->show_save_new_prompt = false;
+				}
 			}
 			
 			ImGui::SameLine();
@@ -1260,6 +1274,13 @@ static void app_render(app_state *state)
 			if (ImGui::Button("Cancel")) {
 				state->show_save_new_prompt = false;
 				state->new_preset_name = "";
+			}
+
+			if (show_empty_error) {
+				ImGui::Text(empty_error);
+			}
+			else if (show_default_error) {
+				ImGui::Text(default_error);
 			}
 		}
 
