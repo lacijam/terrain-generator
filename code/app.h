@@ -91,11 +91,9 @@ struct world_generation_parameters {
     u32 tree_count;
     u32 tree_min_height;
     u32 tree_max_height;
-    u32 max_trees;
     u32 rock_count;
     u32 rock_min_height;
     u32 rock_max_height;
-    u32 max_rocks;
 };
 
 struct preset_file {
@@ -252,8 +250,8 @@ struct app_state {
     LODSettings lod_settings;
     std::vector<Chunk*> chunks;
     Chunk* current_chunk;
-    V3 *trees_pos, *trees_rotation;
-    V3 *rocks_pos, *rocks_rotation;
+    std::vector<V3> trees_pos, trees_rotation;
+    std::vector<V3> rocks_pos, rocks_rotation;
     u32 chunk_count;
     u32 chunk_vertices_length;
     u32 world_area;

@@ -435,7 +435,7 @@ static void app_render_features(app_state *state)
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
-	for (u32 i = 0; i < state->cur_preset.params.tree_count; i++) {
+	for (u32 i = 0; i < state->trees_pos.size(); i++) {
 		if (state->trees_pos[i].y < state->cur_preset.params.tree_min_height || state->trees_pos[i].y > state->cur_preset.params.tree_max_height) {
 			continue;
 		}
@@ -462,7 +462,7 @@ static void app_render_features(app_state *state)
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
-	for (u32 i = 0; i < state->cur_preset.params.tree_count; i++) {
+	for (u32 i = 0; i < state->trees_pos.size(); i++) {
 		if (state->trees_pos[i].y < state->cur_preset.params.tree_min_height || state->trees_pos[i].y > state->cur_preset.params.tree_max_height) {
 			continue;
 		}
@@ -490,7 +490,7 @@ static void app_render_features(app_state *state)
 	glEnable(GL_CULL_FACE);
 
 	// Render rocks.
-	for (u32 i = 0; i < state->cur_preset.params.rock_count; i++) {
+	for (u32 i = 0; i < state->rocks_pos.size(); i++) {
 		if (state->rocks_pos[i].y < state->cur_preset.params.rock_min_height || state->rocks_pos[i].y > state->cur_preset.params.rock_max_height) {
 			continue;
 		}
@@ -513,13 +513,23 @@ static void app_render_features(app_state *state)
 
 static void generate_trees(app_state *state)
 {
-	for (u32 i = 0; i < state->cur_preset.params.max_trees; i++) {
+	// Hardcoded limit
+	if (state->cur_preset.params.tree_count > 10000) {
+		state->cur_preset.params.tree_count = 10000;
+	}
+
+	state->trees_pos.clear();
+	state->trees_rotation.clear();
+
+	for (u32 i = 0; i < state->cur_preset.params.tree_count; i++) {
 		real32 x, y, z;
 		x = y = z = -1;
 
+		std::uniform_real_distribution<> rotation_distr(0, 360);
+
 		u32 attempt = 0;
 		while (y < state->cur_preset.params.tree_min_height || y > state->cur_preset.params.tree_max_height) {
-			if (++attempt > 50) {
+			if (++attempt >= 50) {
 				break;
 			}
 
@@ -533,28 +543,35 @@ static void generate_trees(app_state *state)
 			x = chunk->x * state->cur_preset.params.chunk_tile_length + v->pos.x;
 			y = v->pos.y;
 			z = chunk->y * state->cur_preset.params.chunk_tile_length + v->pos.z;
-			state->trees_pos[i].x = x;
-			state->trees_pos[i].y = y;
-			state->trees_pos[i].z = z;
+		}
 
-			std::uniform_real_distribution<> rotation_distr(0, 360);
-
-			//state->trees_rotation[i].x = (acos(v3_dot(v->nor, { 1, 0, 0 })) * 180.f / M_PI);
-			state->trees_rotation[i].y = rotation_distr(state->rng);
-			//state->trees_rotation[i].z = (acos(v3_dot(v->nor, { 0, 0, 1 })) * 180.f / M_PI);
+		if (attempt < 50) {
+			state->trees_pos.push_back({ x, y, z });
+			state->trees_rotation.push_back({ 0.f, (real32)rotation_distr(state->rng), 0.f });
 		}
 	}
 }
 
 static void generate_rocks(app_state *state)
 {
-	for (u32 i = 0; i < state->cur_preset.params.max_rocks; i++) {
+	// Hardcoded limit.
+	if (state->cur_preset.params.rock_count > 10000) {
+		state->cur_preset.params.rock_count = 10000;
+	}
+
+	state->rocks_pos.clear();
+	state->rocks_rotation.clear();
+
+	std::uniform_real_distribution<> rotation_distr(0, 360);
+
+	for (u32 i = 0; i < state->cur_preset.params.rock_count; i++) {
 		real32 x, y, z;
 		x = y = z = -1;
+		Vertex *v = &state->chunks[0]->vertices[0];
 
 		u32 attempt = 0;
 		while (y < state->cur_preset.params.rock_min_height || y > state->cur_preset.params.rock_max_height) {
-			if (++attempt > 50) {
+			if (++attempt >= 50) {
 				break;
 			}
 
@@ -564,19 +581,20 @@ static void generate_rocks(app_state *state)
 
 			std::uniform_int_distribution<> vertex_index(0, chunk->vertices_count - 1);
 
-			Vertex *v = &chunk->vertices[vertex_index(state->rng)];
+			v = &chunk->vertices[vertex_index(state->rng)];
 			x = chunk->x * state->cur_preset.params.chunk_tile_length + v->pos.x;
 			y = v->pos.y;
 			z = chunk->y * state->cur_preset.params.chunk_tile_length + v->pos.z;
-			state->rocks_pos[i].x = x;
-			state->rocks_pos[i].y = y;
-			state->rocks_pos[i].z = z;
-			
-			std::uniform_real_distribution<> rotation_distr(0, 360);
+		}
 
-			state->rocks_rotation[i].x = (acos(v3_dot(v->nor, { 1, 0, 0 })) * 180.f/ M_PI) ;
-			state->rocks_rotation[i].y = rotation_distr(state->rng);
-			state->rocks_rotation[i].z = (acos(v3_dot(v->nor, { 0, 0, 1 })) * 180.f / M_PI);
+		if (attempt < 50) {
+			state->rocks_pos.push_back({ x, y, z });
+
+			state->rocks_rotation.push_back({
+				(acosf(v3_dot(v->nor, { 1, 0, 0 })) * 180.f / (real32)M_PI),
+				(real32)rotation_distr(state->rng),
+				(acosf(v3_dot(v->nor, { 0, 0, 1 })) * 180.f / (real32)M_PI)
+			});
 		}
 	}
 }
@@ -1536,7 +1554,7 @@ static void app_render(app_state *state)
 
 		if (ImGui::TreeNode("Features")) {
 			if (ImGui::TreeNode("Trees")) {
-				ImGui::SliderInt("tree count", (int *)&state->cur_preset.params.tree_count, 0, state->cur_preset.params.max_trees, "%d", ImGuiSliderFlags_None);
+				regenerate_trees |= ImGui::SliderInt("tree count", (int *)&state->cur_preset.params.tree_count, 0, state->trees_pos.size() + 100, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderFloat("tree size", &state->cur_preset.params.tree_size, 0.1f, 5.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::SliderInt("tree min height", (int *)&state->cur_preset.params.tree_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderInt("tree max height", (int *)&state->cur_preset.params.tree_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
@@ -1546,7 +1564,7 @@ static void app_render(app_state *state)
 			}
 
 			if (ImGui::TreeNode("Rocks")) {
-				ImGui::SliderInt("rock count", (int *)&state->cur_preset.params.rock_count, 0, state->cur_preset.params.max_rocks, "%d", ImGuiSliderFlags_None);
+				regenerate_rocks |= ImGui::SliderInt("rock count", (int *)&state->cur_preset.params.rock_count, 0, state->rocks_pos.size() + 100, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderFloat("rock size", &state->cur_preset.params.rock_size, 0.1f, 5.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::SliderInt("rock min height", (int *)&state->cur_preset.params.rock_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderInt("rock max height", (int *)&state->cur_preset.params.rock_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
@@ -1797,12 +1815,10 @@ app_state *app_init(u32 w, u32 h)
 	state->presets[0]->params.tree_size = 1.f;
 	state->presets[0]->params.tree_min_height = state->presets[0]->params.sand_height;
 	state->presets[0]->params.tree_max_height = state->presets[0]->params.snow_height;
-	state->presets[0]->params.max_trees = 10000;
 	state->presets[0]->params.rock_count = 0;
 	state->presets[0]->params.rock_size = 1.f;
 	state->presets[0]->params.rock_min_height = state->presets[0]->params.sand_height;
 	state->presets[0]->params.rock_max_height = state->presets[0]->params.snow_height;
-	state->presets[0]->params.max_rocks = 1000;
 
 	// Attempt to load custom parameters from file.
 	load_presets(state);
@@ -1814,11 +1830,6 @@ app_state *app_init(u32 w, u32 h)
 	init_water_data(state);
 	init_terrain_texture_maps(state);
 	init_depth_map(state);
-
-	state->trees_pos = (V3 *)malloc(state->cur_preset.params.max_trees * sizeof V3);
-	state->trees_rotation = (V3 *)malloc(state->cur_preset.params.max_trees * sizeof V3);
-	state->rocks_pos = (V3 *)malloc(state->cur_preset.params.max_rocks * sizeof V3);
-	state->rocks_rotation = (V3 *)malloc(state->cur_preset.params.max_rocks * sizeof V3);
 
 	state->rng = std::mt19937(state->cur_preset.params.seed);
 
