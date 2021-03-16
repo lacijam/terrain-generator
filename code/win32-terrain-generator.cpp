@@ -9,6 +9,7 @@
 
 static bool window_resized;
 static bool running;
+static bool active;
 static HGLRC glrc;
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -29,6 +30,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		return 0;
 
 	case WM_SIZE:
+		active = wParam != SIZE_MINIMIZED;
 		window_resized = true;
 		break;
 
@@ -134,7 +136,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			app_input input = {};
 			app_window_info window_info = {};
 			window_resized = false;
-			
+
 			BYTE keys[256];
 			GetKeyboardState(keys);
 			input.keyboard.wireframe.started_down = keys['G'] & 0x80;
@@ -149,38 +151,43 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				DispatchMessage(&msg);
 			}
 
-			GetKeyboardState(keys);
-			input.keyboard.forward.ended_down = keys['W'] & 0x80;
-			input.keyboard.backward.ended_down = keys['S'] & 0x80;
-			input.keyboard.left.ended_down = keys['A'] & 0x80;
-			input.keyboard.right.ended_down = keys['D'] & 0x80;
-			input.keyboard.cam_up.ended_down = keys[VK_UP] & 0x80;
-			input.keyboard.cam_down.ended_down = keys[VK_DOWN] & 0x80;
-			input.keyboard.cam_left.ended_down = keys[VK_LEFT] & 0x80;
-			input.keyboard.cam_right.ended_down = keys[VK_RIGHT] & 0x80;
-			input.keyboard.wireframe.ended_down = keys['G'] & 0x80;
-			input.keyboard.wireframe.toggled = !input.keyboard.wireframe.started_down && keys['G'] & 0x80;
-			input.keyboard.fly.ended_down = keys['F'] & 0x80;
-			input.keyboard.fly.toggled = !input.keyboard.fly.started_down && keys['F'] & 0x80;
+			if (active) {
+				GetKeyboardState(keys);
+				input.keyboard.forward.ended_down = keys['W'] & 0x80;
+				input.keyboard.backward.ended_down = keys['S'] & 0x80;
+				input.keyboard.left.ended_down = keys['A'] & 0x80;
+				input.keyboard.right.ended_down = keys['D'] & 0x80;
+				input.keyboard.cam_up.ended_down = keys[VK_UP] & 0x80;
+				input.keyboard.cam_down.ended_down = keys[VK_DOWN] & 0x80;
+				input.keyboard.cam_left.ended_down = keys[VK_LEFT] & 0x80;
+				input.keyboard.cam_right.ended_down = keys[VK_RIGHT] & 0x80;
+				input.keyboard.wireframe.ended_down = keys['G'] & 0x80;
+				input.keyboard.wireframe.toggled = !input.keyboard.wireframe.started_down && keys['G'] & 0x80;
+				input.keyboard.fly.ended_down = keys['F'] & 0x80;
+				input.keyboard.fly.toggled = !input.keyboard.fly.started_down && keys['F'] & 0x80;
 
-			RECT client;
-			GetClientRect(hwnd, &client);
-			window_info.w = client.right;
-			window_info.h = client.bottom;
-			window_info.resize = window_resized;
-			window_info.running = running;
-			
-			ImGui_ImplOpenGL3_NewFrame();
-			ImGui_ImplWin32_NewFrame();
+				RECT client;
+				GetClientRect(hwnd, &client);
+				window_info.w = client.right;
+				window_info.h = client.bottom;
+				window_info.resize = window_resized;
+				window_info.running = running;
 
-			app_update_and_render(ms_per_frame / 1000.f, state, &input, &window_info);
+				ImGui_ImplOpenGL3_NewFrame();
+				ImGui_ImplWin32_NewFrame();
 
-			real64 finish = GetHighResolutionTime(freq);
-			dt = finish - start;
+				app_update_and_render(ms_per_frame / 1000.f, state, &input, &window_info);
 
-			if (dt < ms_per_frame) {
-				while (GetHighResolutionTime(freq) - start < ms_per_frame);
-				SwapBuffers(wglGetCurrentDC());
+				real64 finish = GetHighResolutionTime(freq);
+				dt = finish - start;
+
+				if (dt < ms_per_frame) {
+					while (GetHighResolutionTime(freq) - start < ms_per_frame);
+					SwapBuffers(wglGetCurrentDC());
+				}
+			}
+			else {
+				Sleep(10);
 			}
 		}
 

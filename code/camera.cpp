@@ -21,7 +21,6 @@ void camera_init(Camera *cam)
 
 void camera_frustrum(Camera *cam, u32 cx, u32 cy)
 {
-	assert(cam && cx > 0 && cy > 0);
 	real32 near_clip = .05f;
 	real32 far_clip = 10000.f;
 	real32 fov_y = (cam->fov * (real32)M_PI / 180.f);
