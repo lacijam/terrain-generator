@@ -88,7 +88,7 @@ static void app_generate_terrain_chunk(
 				real32 total_amplitude = 0;
 
 				for (u32 octave = 0; octave < state->cur_preset.params.max_octaves; octave++) {
-					total += (0.5f + pattern({ (real32)(frequency * x), (real32)(frequency * y) })) * amplitude;
+					total += (0.5f + noise({ (real32)(frequency * x), (real32)(frequency * y) })) * amplitude;
 					total_amplitude += amplitude;
 					amplitude *= state->cur_preset.params.persistence;
 					frequency *= state->cur_preset.params.lacunarity;
@@ -440,7 +440,7 @@ static void app_render_features(app_state *state)
 			continue;
 		}
 
-		const u32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
+		const real32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
 
 		mat4_identity(model);
 		mat4_translate(model, state->trees_pos[i].x, state->trees_pos[i].y, state->trees_pos[i].z);
@@ -465,7 +465,7 @@ static void app_render_features(app_state *state)
 			continue;
 		}
 
-		const u32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
+		const real32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
 
 		mat4_identity(model);
 		mat4_translate(model, state->trees_pos[i].x, state->trees_pos[i].y, state->trees_pos[i].z);
@@ -491,7 +491,7 @@ static void app_render_features(app_state *state)
 			continue;
 		}
 
-		const u32 scale = state->cur_preset.params.rock_size * state->cur_preset.params.scale;
+		const real32 scale = state->cur_preset.params.rock_size * state->cur_preset.params.scale;
 
 		mat4_identity(model);
 		mat4_translate(model, state->rocks_pos[i].x, state->rocks_pos[i].y, state->rocks_pos[i].z);
@@ -1478,7 +1478,21 @@ static void app_render(app_state *state)
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("Rock")) {
+			if (ImGui::TreeNode("Tree Trunks")) {
+				ImGui::SliderFloat("red", &state->cur_preset.params.trunk_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset.params.trunk_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset.params.trunk_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Tree Leaves")) {
+				ImGui::SliderFloat("red", &state->cur_preset.params.leaves_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset.params.leaves_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset.params.leaves_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Rocks")) {
 				ImGui::SliderFloat("red", &state->cur_preset.params.rock_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::SliderFloat("green", &state->cur_preset.params.rock_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::SliderFloat("blue", &state->cur_preset.params.rock_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
@@ -1503,20 +1517,6 @@ static void app_render(app_state *state)
 				ImGui::SliderInt("tree min height", (int *)&state->cur_preset.params.tree_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderInt("tree max height", (int *)&state->cur_preset.params.tree_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
 
-				if (ImGui::TreeNode("Tree Trunks")) {
-					ImGui::SliderFloat("red", &state->cur_preset.params.trunk_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("green", &state->cur_preset.params.trunk_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("blue", &state->cur_preset.params.trunk_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::TreePop();
-				}
-
-				if (ImGui::TreeNode("Tree Leaves")) {
-					ImGui::SliderFloat("red", &state->cur_preset.params.leaves_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("green", &state->cur_preset.params.leaves_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("blue", &state->cur_preset.params.leaves_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::TreePop();
-				}
-
 				regenerate_trees |= ImGui::Button("Regenerate");
 				ImGui::TreePop();
 			}
@@ -1526,13 +1526,6 @@ static void app_render(app_state *state)
 				ImGui::SliderFloat("rock size", &state->cur_preset.params.rock_size, 0.1f, 5.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::SliderInt("rock min height", (int *)&state->cur_preset.params.rock_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderInt("rock max height", (int *)&state->cur_preset.params.rock_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
-
-				if (ImGui::TreeNode("Colour")) {
-					ImGui::SliderFloat("red", &state->cur_preset.params.rock_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("green", &state->cur_preset.params.rock_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("blue", &state->cur_preset.params.rock_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::TreePop();
-				}
 
 				regenerate_rocks |= ImGui::Button("Regenerate");
 				ImGui::TreePop();
