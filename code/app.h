@@ -230,7 +230,7 @@ struct app_state {
     DepthShader depth_shader;
 
     std::vector<preset_file*> presets;
-    preset_file *cur_preset;
+    preset_file cur_preset;
 
     ExportSettings export_settings;
     TextureMapData texture_map_data;
