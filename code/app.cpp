@@ -1249,6 +1249,7 @@ static void app_render(app_state *state)
 			static bool show_default_error = false;
 	
 			ImGui::InputText("Name", &state->new_preset_name);
+			state->is_typing = ImGui::IsItemFocused();
 
 			if (ImGui::Button("Confirm")) {
 				show_empty_error = state->new_preset_name == "";
@@ -1781,46 +1782,49 @@ app_state *app_init(u32 w, u32 h)
 	state->general_settings_open = true;
 	state->show_save_new_prompt = false;
 	state->new_preset_name = "";
+	state->is_typing = false;
 
 	return state;
 }
 
 void app_handle_input(real32 dt, app_state *state, app_keyboard_input *keyboard)
 {
-	if (keyboard->forward.ended_down) {
-		camera_move_forward(&state->cur_cam, dt);
-	}
-	else if (keyboard->backward.ended_down) {
-		camera_move_backward(&state->cur_cam, dt);
-	}
+	if (!state->is_typing) {
+		if (keyboard->forward.ended_down) {
+			camera_move_forward(&state->cur_cam, dt);
+		}
+		else if (keyboard->backward.ended_down) {
+			camera_move_backward(&state->cur_cam, dt);
+		}
 
-	if (keyboard->left.ended_down) {
-		camera_move_left(&state->cur_cam, dt);
-	}
-	else if (keyboard->right.ended_down) {
-		camera_move_right(&state->cur_cam, dt);
-	}
+		if (keyboard->left.ended_down) {
+			camera_move_left(&state->cur_cam, dt);
+		}
+		else if (keyboard->right.ended_down) {
+			camera_move_right(&state->cur_cam, dt);
+		}
 
-	if (keyboard->cam_up.ended_down) {
-		state->cur_cam.pitch += state->cur_cam.look_speed * dt;
-	}
-	else if (keyboard->cam_down.ended_down) {
-		state->cur_cam.pitch -= state->cur_cam.look_speed * dt;
-	}
+		if (keyboard->cam_up.ended_down) {
+			state->cur_cam.pitch += state->cur_cam.look_speed * dt;
+		}
+		else if (keyboard->cam_down.ended_down) {
+			state->cur_cam.pitch -= state->cur_cam.look_speed * dt;
+		}
 
-	if (keyboard->cam_left.ended_down) {
-		state->cur_cam.yaw -= state->cur_cam.look_speed * dt;
-	}
-	else if (keyboard->cam_right.ended_down) {
-		state->cur_cam.yaw += state->cur_cam.look_speed * dt;
-	}
+		if (keyboard->cam_left.ended_down) {
+			state->cur_cam.yaw -= state->cur_cam.look_speed * dt;
+		}
+		else if (keyboard->cam_right.ended_down) {
+			state->cur_cam.yaw += state->cur_cam.look_speed * dt;
+		}
 
-	if (keyboard->wireframe.toggled) {
-		state->wireframe = !state->wireframe;
-	}
+		if (keyboard->wireframe.toggled) {
+			state->wireframe = !state->wireframe;
+		}
 
-	if (keyboard->fly.toggled) {
-		state->cur_cam.flying = !state->cur_cam.flying;
+		if (keyboard->fly.toggled) {
+			state->cur_cam.flying = !state->cur_cam.flying;
+		}
 	}
 }
 
