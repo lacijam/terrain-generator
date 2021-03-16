@@ -267,7 +267,7 @@ struct app_state {
     
     bool general_settings_open;
     bool terrain_settings_open;
-    bool show_save_new_prompt;
+    bool show_filename_prompt;
     bool is_typing;
 
     std::string new_preset_name;

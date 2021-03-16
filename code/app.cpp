@@ -455,6 +455,8 @@ static void app_render_features(app_state *state)
 	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.leaves_colour);
 
 	// Render leaves
+	glDisable(GL_CULL_FACE);
+
 	glBindBuffer(GL_ARRAY_BUFFER, state->leaves->vbos[0]);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->leaves->vbos[1]);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
@@ -484,6 +486,8 @@ static void app_render_features(app_state *state)
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->rock->vbos[1]);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
+	
+	glEnable(GL_CULL_FACE);
 
 	// Render rocks.
 	for (u32 i = 0; i < state->cur_preset.params.rock_count; i++) {
@@ -1257,13 +1261,18 @@ static void app_render(app_state *state)
 	}
 
 	if (ImGui::TreeNode("Save/Load Presets")) {
-		bool custom, plains, desert, mountains;
-		custom = plains = desert = mountains = false;
+		static bool save_as = false;
 
 		std::string s = "Current preset: " + state->cur_preset.name;
 		ImGui::Text(s.c_str());
 
 		if (state->cur_preset.name != "default") {
+			if (ImGui::Button("Rename")) {
+				state->show_filename_prompt = true;
+			}
+
+			ImGui::SameLine();
+
 			if (ImGui::Button("Save")) {
 				save_custom_preset_to_file(&state->cur_preset);
 				
@@ -1274,10 +1283,11 @@ static void app_render(app_state *state)
 		}
 
 		if (ImGui::Button("Save to new")) {
-			state->show_save_new_prompt = true;
+			state->show_filename_prompt = true;
+			save_as = true;
 		}
 
-		if (state->show_save_new_prompt) {
+		if (state->show_filename_prompt) {
 			ImGui::Separator();
 
 			static const char *empty_error = "Please enter a filename";
@@ -1293,27 +1303,41 @@ static void app_render(app_state *state)
 				show_empty_error = state->new_preset_name == "";
 				show_default_error = state->new_preset_name == "default";
 
-				 if (!show_empty_error && !show_default_error) {
-					preset_file p_file = {};
-					p_file.name = state->new_preset_name;
-					p_file.index = state->presets.size();
-					p_file.params = state->cur_preset.params;
+				if (!show_empty_error && !show_default_error) {
+					if (save_as) {
+						preset_file p_file = {};
+						p_file.name = state->new_preset_name;
+						p_file.index = state->presets.size();
+						p_file.params = state->cur_preset.params;
 
-					state->presets.push_back(new preset_file(p_file));
-					state->cur_preset = *state->presets.back();
-					state->new_preset_name = "";
+						state->presets.push_back(new preset_file(p_file));
+						state->cur_preset = *state->presets.back();
+						state->new_preset_name = "";
 
-					save_custom_preset_to_file(state->presets.back());
+						save_custom_preset_to_file(state->presets.back());
+					} else {
+						// Update the preset's filename.
+						std::filesystem::path p = std::filesystem::current_path();
+						std::filesystem::rename(p/(state->cur_preset.name + ".world"), p/(state->new_preset_name + ".world"));
 
-					state->show_save_new_prompt = false;
+						// Update the preset's name within the application.
+						state->cur_preset.name = state->new_preset_name;
+						state->presets.at(state->cur_preset.index)->name = state->cur_preset.name;
+					}
+					
+
+					state->show_filename_prompt = false;
+					save_as = false;
 				}
 			}
 			
 			ImGui::SameLine();
 			
 			if (ImGui::Button("Cancel")) {
-				state->show_save_new_prompt = false;
+				state->show_filename_prompt = false;
 				state->new_preset_name = "";
+
+				save_as = false;
 			}
 
 			if (show_empty_error) {
@@ -1828,7 +1852,7 @@ app_state *app_init(u32 w, u32 h)
 
 	state->terrain_settings_open = true;
 	state->general_settings_open = true;
-	state->show_save_new_prompt = false;
+	state->show_filename_prompt = false;
 	state->new_preset_name = "";
 	state->is_typing = false;
 
