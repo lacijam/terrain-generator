@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string>
 #include <fstream>
-#include <sstream>
 #include <functional>
+#include <filesystem>
 
 #include "maths.h"
 #include "win32-opengl.h"
@@ -15,6 +15,7 @@
 
 #include "imgui-master/imgui.h"
 #include "imgui-master/imgui_impl_opengl3.h"
+#include "imgui-master/imgui_stdlib.h"
 
 void init_terrain(app_state *state, u32 chunk_tile_length, u32 world_width);
 
@@ -78,19 +79,19 @@ static void app_generate_terrain_chunk(
 			for (u32 i = 0; i < state->chunk_vertices_length; i++) {
 				u32 index = j * state->chunk_vertices_length + i;
 
-				real32 x = state->params->x_offset + (chunk->x + (real32)i / state->params->chunk_tile_length) / state->params->scale;
-				real32 y = state->params->z_offset + (chunk->y + (real32)j / state->params->chunk_tile_length) / state->params->scale;
+				real32 x = state->cur_preset->params.x_offset + (chunk->x + (real32)i / state->cur_preset->params.chunk_tile_length) / state->cur_preset->params.scale;
+				real32 y = state->cur_preset->params.z_offset + (chunk->y + (real32)j / state->cur_preset->params.chunk_tile_length) / state->cur_preset->params.scale;
 
 				real32 total = 0;
 				real32 frequency = 1;
 				real32 amplitude = 1;
 				real32 total_amplitude = 0;
 
-				for (u32 octave = 0; octave < state->params->max_octaves; octave++) {
+				for (u32 octave = 0; octave < state->cur_preset->params.max_octaves; octave++) {
 					total += (0.5f + pattern({ (real32)(frequency * x), (real32)(frequency * y) })) * amplitude;
 					total_amplitude += amplitude;
-					amplitude *= state->params->persistence;
-					frequency *= state->params->lacunarity;
+					amplitude *= state->cur_preset->params.persistence;
+					frequency *= state->cur_preset->params.lacunarity;
 				}
 
 				real32 octave_result = total / total_amplitude;
@@ -99,7 +100,7 @@ static void app_generate_terrain_chunk(
 					octave_result = 0;
 				}
 
-				real32 elevation = ((powf(octave_result, state->params->elevation_power)) * state->params->y_scale * state->params->scale);
+				real32 elevation = ((powf(octave_result, state->cur_preset->params.elevation_power)) * state->cur_preset->params.y_scale * state->cur_preset->params.scale);
 
 				chunk->vertices[index].pos.x = i;
 				chunk->vertices[index].pos.y = elevation;
@@ -109,9 +110,9 @@ static void app_generate_terrain_chunk(
 		}
 
 		// Calculate normals
-		for (u32 j = 0; j < state->params->chunk_tile_length; j++) {
-			for (u32 i = 0; i < state->params->chunk_tile_length; i++) {
-				u32 index = j * state->params->chunk_tile_length + i;
+		for (u32 j = 0; j < state->cur_preset->params.chunk_tile_length; j++) {
+			for (u32 i = 0; i < state->cur_preset->params.chunk_tile_length; i++) {
+				u32 index = j * state->cur_preset->params.chunk_tile_length + i;
 
 				u32 v0 = j * state->chunk_vertices_length + i;
 				u32 v1 = v0 + 1;
@@ -158,8 +159,8 @@ static void app_generate_terrain_chunk(
 
 		u32 v0, v1, v2, v3;
 
-		const u32 max_width = state->params->chunk_tile_length;
-		const u32 max_height = state->params->chunk_tile_length;
+		const u32 max_width = state->cur_preset->params.chunk_tile_length;
+		const u32 max_height = state->cur_preset->params.chunk_tile_length;
 
 		// Create mesh for vertices above water
 		for (u32 j = 0; j < indices_length; j += detail) {
@@ -329,22 +330,22 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 {
 	glUniform4fv(state->terrain_shader.plane, 1, clip);
 
-	glUniform1f(state->terrain_shader.ambient_strength, state->params->ambient_strength);
-	glUniform1f(state->terrain_shader.diffuse_strength, state->params->diffuse_strength);
-	glUniform1f(state->terrain_shader.specular_strength, state->params->specular_strength);
-	glUniform1f(state->terrain_shader.gamma_correction, state->params->gamma_correction);
+	glUniform1f(state->terrain_shader.ambient_strength, state->cur_preset->params.ambient_strength);
+	glUniform1f(state->terrain_shader.diffuse_strength, state->cur_preset->params.diffuse_strength);
+	glUniform1f(state->terrain_shader.specular_strength, state->cur_preset->params.specular_strength);
+	glUniform1f(state->terrain_shader.gamma_correction, state->cur_preset->params.gamma_correction);
 
 	glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
-	glUniform1f(state->terrain_shader.sand_height, state->params->sand_height);
-	glUniform1f(state->terrain_shader.stone_height, state->params->stone_height);
-	glUniform1f(state->terrain_shader.snow_height, state->params->snow_height);
+	glUniform1f(state->terrain_shader.sand_height, state->cur_preset->params.sand_height);
+	glUniform1f(state->terrain_shader.stone_height, state->cur_preset->params.stone_height);
+	glUniform1f(state->terrain_shader.snow_height, state->cur_preset->params.snow_height);
 
-	glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&state->params->light_colour);
-	glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&state->params->slope_colour);
-	glUniform3fv(state->terrain_shader.ground_colour, 1, (GLfloat *)&state->params->ground_colour);
-	glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&state->params->sand_colour);
-	glUniform3fv(state->terrain_shader.stone_colour, 1, (GLfloat *)&state->params->stone_colour);
-	glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&state->params->snow_colour);
+	glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&state->cur_preset->params.light_colour);
+	glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&state->cur_preset->params.slope_colour);
+	glUniform3fv(state->terrain_shader.ground_colour, 1, (GLfloat *)&state->cur_preset->params.ground_colour);
+	glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&state->cur_preset->params.sand_colour);
+	glUniform3fv(state->terrain_shader.stone_colour, 1, (GLfloat *)&state->cur_preset->params.stone_colour);
+	glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&state->cur_preset->params.snow_colour);
 
 	glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat *)&state->cur_cam.pos);
 
@@ -355,7 +356,7 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 
 	glBindVertexArray(state->triangle_vao);
 
-	u32 chunk_index = chunk->y * state->params->world_width + chunk->x;
+	u32 chunk_index = chunk->y * state->cur_preset->params.world_width + chunk->x;
 
 	glBindBuffer(GL_ARRAY_BUFFER, state->chunks[chunk_index]->vbo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->chunks[chunk_index]->ebo);
@@ -364,7 +365,7 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 
 	real32 model[16];
 	mat4_identity(model);
-	mat4_translate(model, chunk->x * state->params->chunk_tile_length , 0, chunk->y * state->params->chunk_tile_length);
+	mat4_translate(model, chunk->x * state->cur_preset->params.chunk_tile_length , 0, chunk->y * state->cur_preset->params.chunk_tile_length);
 
 	glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
 
@@ -412,13 +413,13 @@ static void app_render_lights_and_features(app_state *state)
 {
 	glUseProgram(state->simple_shader.program);
 
-	glUniform1f(state->simple_shader.ambient_strength, state->params->ambient_strength);
-	glUniform1f(state->simple_shader.diffuse_strength, state->params->diffuse_strength);
-	glUniform1f(state->simple_shader.gamma_correction, state->params->gamma_correction);
+	glUniform1f(state->simple_shader.ambient_strength, state->cur_preset->params.ambient_strength);
+	glUniform1f(state->simple_shader.diffuse_strength, state->cur_preset->params.diffuse_strength);
+	glUniform1f(state->simple_shader.gamma_correction, state->cur_preset->params.gamma_correction);
 
 	glUniform3fv(state->simple_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
-	glUniform3fv(state->simple_shader.light_colour, 1, (GLfloat *)&state->params->light_colour);
-	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->params->tree_colour);
+	glUniform3fv(state->simple_shader.light_colour, 1, (GLfloat *)&state->cur_preset->params.light_colour);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset->params.tree_colour);
 
 	glUniformMatrix4fv(state->simple_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
 	glUniformMatrix4fv(state->simple_shader.view, 1, GL_FALSE, state->cur_cam.view);
@@ -433,12 +434,12 @@ static void app_render_lights_and_features(app_state *state)
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
-	for (u32 i = 0; i < state->params->tree_count; i++) {
-		if (state->trees[i].y < state->params->tree_min_height || state->trees[i].y > state->params->tree_max_height) {
+	for (u32 i = 0; i < state->cur_preset->params.tree_count; i++) {
+		if (state->trees[i].y < state->cur_preset->params.tree_min_height || state->trees[i].y > state->cur_preset->params.tree_max_height) {
 			continue;
 		}
 
-		const u32 scale = 1.f * state->params->scale;
+		const u32 scale = 1.f * state->cur_preset->params.scale;
 
 		mat4_identity(model);
 		mat4_translate(model, state->trees[i].x, state->trees[i].y + (scale / 2), state->trees[i].z);
@@ -447,7 +448,7 @@ static void app_render_lights_and_features(app_state *state)
 		glDrawElements(GL_TRIANGLES, 4 * state->tree->polygons.size(), GL_UNSIGNED_INT, 0);
 	}*/
 
-	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->params->rock_colour);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset->params.rock_colour);
 
 	glBindVertexArray(state->triangle_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, state->rock->vbos[0]);
@@ -456,8 +457,8 @@ static void app_render_lights_and_features(app_state *state)
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
 	// Render rocks.
-	for (u32 i = 0; i < state->params->rock_count; i++) {
-		if (state->rocks_pos[i].y < state->params->rock_min_height || state->rocks_pos[i].y > state->params->rock_max_height) {
+	for (u32 i = 0; i < state->cur_preset->params.rock_count; i++) {
+		if (state->rocks_pos[i].y < state->cur_preset->params.rock_min_height || state->rocks_pos[i].y > state->cur_preset->params.rock_max_height) {
 			continue;
 		}
 
@@ -466,7 +467,7 @@ static void app_render_lights_and_features(app_state *state)
 		mat4_rotate_x(model, state->rocks_rotation[i].x);
 		mat4_rotate_y(model, state->rocks_rotation[i].y);
 		mat4_rotate_z(model, state->rocks_rotation[i].z);
-		mat4_scale(model, state->params->rock_size, state->params->rock_size, state->params->rock_size);
+		mat4_scale(model, state->cur_preset->params.rock_size, state->cur_preset->params.rock_size, state->cur_preset->params.rock_size);
 
 		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
 		glDrawElements(GL_TRIANGLES, 3 * state->rock->polygons.size(), GL_UNSIGNED_INT, 0);
@@ -477,12 +478,12 @@ static void app_render_lights_and_features(app_state *state)
 
 static void generate_trees(app_state *state)
 {
-	for (u32 i = 0; i < state->params->max_trees; i++) {
+	for (u32 i = 0; i < state->cur_preset->params.max_trees; i++) {
 		real32 x, y, z;
 		x = y = z = -1;
 
 		u32 attempt = 0;
-		while (y < state->params->tree_min_height || y > state->params->tree_max_height) {
+		while (y < state->cur_preset->params.tree_min_height || y > state->cur_preset->params.tree_max_height) {
 			if (++attempt > 50) {
 				break;
 			}
@@ -494,9 +495,9 @@ static void generate_trees(app_state *state)
 			std::uniform_int_distribution<> vertex_index(0, chunk->vertices_count - 1);
 
 			Vertex *v = &chunk->vertices[vertex_index(state->rng)];
-			x = chunk->x * state->params->chunk_tile_length + v->pos.x;
+			x = chunk->x * state->cur_preset->params.chunk_tile_length + v->pos.x;
 			y = v->pos.y;
-			z = chunk->y * state->params->chunk_tile_length + v->pos.z;
+			z = chunk->y * state->cur_preset->params.chunk_tile_length + v->pos.z;
 			state->trees[i].x = x;
 			state->trees[i].y = y;
 			state->trees[i].z = z;
@@ -506,12 +507,12 @@ static void generate_trees(app_state *state)
 
 static void generate_rocks(app_state *state)
 {
-	for (u32 i = 0; i < state->params->max_rocks; i++) {
+	for (u32 i = 0; i < state->cur_preset->params.max_rocks; i++) {
 		real32 x, y, z;
 		x = y = z = -1;
 
 		u32 attempt = 0;
-		while (y < state->params->rock_min_height || y > state->params->rock_max_height) {
+		while (y < state->cur_preset->params.rock_min_height || y > state->cur_preset->params.rock_max_height) {
 			if (++attempt > 50) {
 				break;
 			}
@@ -523,9 +524,9 @@ static void generate_rocks(app_state *state)
 			std::uniform_int_distribution<> vertex_index(0, chunk->vertices_count - 1);
 
 			Vertex *v = &chunk->vertices[vertex_index(state->rng)];
-			x = chunk->x * state->params->chunk_tile_length + v->pos.x;
+			x = chunk->x * state->cur_preset->params.chunk_tile_length + v->pos.x;
 			y = v->pos.y;
-			z = chunk->y * state->params->chunk_tile_length + v->pos.z;
+			z = chunk->y * state->cur_preset->params.chunk_tile_length + v->pos.z;
 			state->rocks_pos[i].x = x;
 			state->rocks_pos[i].y = y;
 			state->rocks_pos[i].z = z;
@@ -541,9 +542,9 @@ static void generate_rocks(app_state *state)
 
 static void generate_world(app_state *state, bool32 just_lods = false)
 {
-	for (u32 j = 0; j < state->params->world_width; j++) {
-		for (u32 i = 0; i < state->params->world_width; i++) {
-			state->generation_threads.push_back(std::thread(app_generate_terrain_chunk, state, state->chunks[j * state->params->world_width + i], just_lods));
+	for (u32 j = 0; j < state->cur_preset->params.world_width; j++) {
+		for (u32 i = 0; i < state->cur_preset->params.world_width; i++) {
+			state->generation_threads.push_back(std::thread(app_generate_terrain_chunk, state, state->chunks[j * state->cur_preset->params.world_width + i], just_lods));
 		}
 	}
 
@@ -556,9 +557,9 @@ static void generate_world(app_state *state, bool32 just_lods = false)
 	glBindVertexArray(state->triangle_vao);
 
 	u64 quads_sum = 0;
-	for (u32 j = 0; j < state->params->world_width; j++) {
-		for (u32 i = 0; i < state->params->world_width; i++) {
-			u32 index = j * state->params->world_width + i;
+	for (u32 j = 0; j < state->cur_preset->params.world_width; j++) {
+		for (u32 i = 0; i < state->cur_preset->params.world_width; i++) {
+			u32 index = j * state->cur_preset->params.world_width + i;
 
 			Chunk *chunk = state->chunks[index];
 
@@ -621,9 +622,9 @@ static void export_terrain_chunk(app_state *state, Chunk *chunk)
 		for (u32 vertex = 0; vertex < chunk->vertices_count; vertex++) {
 			Vertex *current_vertex = &chunk->vertices[vertex];
 			// Offset chunk vertices by world position.
-			real32 x = current_vertex->pos.x + chunk->x * (state->params->chunk_tile_length);
+			real32 x = current_vertex->pos.x + chunk->x * (state->cur_preset->params.chunk_tile_length);
 			real32 y = current_vertex->pos.y;
-			real32 z = current_vertex->pos.z + chunk->y * (state->params->chunk_tile_length);
+			real32 z = current_vertex->pos.z + chunk->y * (state->cur_preset->params.chunk_tile_length);
 
 			object_file << "v " << x << " " << y << " " << z;
 			object_file << std::endl;
@@ -632,8 +633,8 @@ static void export_terrain_chunk(app_state *state, Chunk *chunk)
 		if (state->export_settings.texture_map) {
 			for (u32 vertex_row = 0; vertex_row < state->chunk_vertices_length; vertex_row++) {
 				for (u32 vertex_col = 0; vertex_col < state->chunk_vertices_length; vertex_col++) {
-					real32 u = (real32)(chunk->y * state->chunk_vertices_length + vertex_row) / (state->params->world_width * state->chunk_vertices_length);
-					real32 v = (real32)(chunk->x * state->chunk_vertices_length + vertex_col) / (state->params->world_width * state->chunk_vertices_length);
+					real32 u = (real32)(chunk->y * state->chunk_vertices_length + vertex_row) / (state->cur_preset->params.world_width * state->chunk_vertices_length);
+					real32 v = (real32)(chunk->x * state->chunk_vertices_length + vertex_col) / (state->cur_preset->params.world_width * state->chunk_vertices_length);
 
 					object_file << "vt " << u << " " << v << std::endl;
 				}
@@ -704,18 +705,18 @@ static void export_terrain_one_obj(app_state *state)
 		object_file << "usemtl textured" << std::endl;
 		object_file << "o Terrain" << std::endl;
 
-		for (u32 chunk_z = 0; chunk_z < state->params->world_width; chunk_z++) {
-			for (u32 chunk_x = 0; chunk_x < state->params->world_width; chunk_x++) {
-				u32 chunk_index = chunk_z * state->params->world_width + chunk_x;
+		for (u32 chunk_z = 0; chunk_z < state->cur_preset->params.world_width; chunk_z++) {
+			for (u32 chunk_x = 0; chunk_x < state->cur_preset->params.world_width; chunk_x++) {
+				u32 chunk_index = chunk_z * state->cur_preset->params.world_width + chunk_x;
 
 				object_file << "# Chunk" << chunk_index << " vertices" << std::endl;
 
 				for (u32 vertex = 0; vertex < state->chunks[chunk_index]->vertices_count; vertex++) {
 					Vertex *current_vertex = &state->chunks[chunk_index]->vertices[vertex];
 					// Offset chunk vertices by world position.
-					real32 x = current_vertex->pos.x + chunk_x * (state->params->chunk_tile_length);
+					real32 x = current_vertex->pos.x + chunk_x * (state->cur_preset->params.chunk_tile_length);
 					real32 y = current_vertex->pos.y;
-					real32 z = current_vertex->pos.z + chunk_z * (state->params->chunk_tile_length);
+					real32 z = current_vertex->pos.z + chunk_z * (state->cur_preset->params.chunk_tile_length);
 
 					object_file << "v " << x << " " << y << " " << z;
 					object_file << std::endl;
@@ -724,12 +725,12 @@ static void export_terrain_one_obj(app_state *state)
 		}
 
 		if (state->export_settings.texture_map) {
-			for (u32 chunk_z = 0; chunk_z < state->params->world_width; chunk_z++) {
-				for (u32 chunk_x = 0; chunk_x < state->params->world_width; chunk_x++) {
+			for (u32 chunk_z = 0; chunk_z < state->cur_preset->params.world_width; chunk_z++) {
+				for (u32 chunk_x = 0; chunk_x < state->cur_preset->params.world_width; chunk_x++) {
 					for (u32 vertex_row = 0; vertex_row < state->chunk_vertices_length; vertex_row++) {
 						for (u32 vertex_col = 0; vertex_col < state->chunk_vertices_length; vertex_col++) {
-							real32 u = (real32)(chunk_z * state->chunk_vertices_length + vertex_row) / (state->params->world_width * state->chunk_vertices_length);
-							real32 v = (real32)(chunk_x * state->chunk_vertices_length + vertex_col) / (state->params->world_width * state->chunk_vertices_length);
+							real32 u = (real32)(chunk_z * state->chunk_vertices_length + vertex_row) / (state->cur_preset->params.world_width * state->chunk_vertices_length);
+							real32 v = (real32)(chunk_x * state->chunk_vertices_length + vertex_col) / (state->cur_preset->params.world_width * state->chunk_vertices_length);
 
 							object_file << "vt " << u << " " << v << std::endl;
 						}
@@ -739,9 +740,9 @@ static void export_terrain_one_obj(app_state *state)
 		}
 
 		if (state->export_settings.with_normals) {
-			for (u32 chunk_z = 0; chunk_z < state->params->world_width; chunk_z++) {
-				for (u32 chunk_x = 0; chunk_x < state->params->world_width; chunk_x++) {
-					u32 chunk_index = chunk_z * state->params->world_width + chunk_x;
+			for (u32 chunk_z = 0; chunk_z < state->cur_preset->params.world_width; chunk_z++) {
+				for (u32 chunk_x = 0; chunk_x < state->cur_preset->params.world_width; chunk_x++) {
+					u32 chunk_index = chunk_z * state->cur_preset->params.world_width + chunk_x;
 
 					for (u32 vertex = 0; vertex < state->chunks[chunk_index]->vertices_count; vertex++) {
 						Vertex *current_vertex = &state->chunks[chunk_index]->vertices[vertex];
@@ -768,9 +769,9 @@ static void export_terrain_one_obj(app_state *state)
 			face_string_func = face_string_with_uv;
 		}
 
-		for (u32 chunk_z = 0; chunk_z < state->params->world_width; chunk_z++) {
-			for (u32 chunk_x = 0; chunk_x < state->params->world_width; chunk_x++) {
-				u32 chunk_index = chunk_z * state->params->world_width + chunk_x;
+		for (u32 chunk_z = 0; chunk_z < state->cur_preset->params.world_width; chunk_z++) {
+			for (u32 chunk_x = 0; chunk_x < state->cur_preset->params.world_width; chunk_x++) {
+				u32 chunk_index = chunk_z * state->cur_preset->params.world_width + chunk_x;
 
 				Chunk *current_chunk = state->chunks[chunk_index];
 
@@ -813,9 +814,9 @@ static void export_terrain_one_obj(app_state *state)
 static void export_terrain(app_state *state)
 {
 	if (state->export_settings.seperate_chunks) {
-		for (u32 j = 0; j < state->params->world_width; j++) {
-			for (u32 i = 0; i < state->params->world_width; i++) {
-				state->generation_threads.push_back(std::thread(export_terrain_chunk, state, state->chunks[j * state->params->world_width + i]));
+		for (u32 j = 0; j < state->cur_preset->params.world_width; j++) {
+			for (u32 i = 0; i < state->cur_preset->params.world_width; i++) {
+				state->generation_threads.push_back(std::thread(export_terrain_chunk, state, state->chunks[j * state->cur_preset->params.world_width + i]));
 			}
 		}
 
@@ -890,25 +891,25 @@ static void export_terrain(app_state *state)
 
 		// Put the light directly above the terrain if we dont want shadows.
 		if (!state->export_settings.bake_shadows) {
-			light_pos = { ((real32)state->params->chunk_tile_length / 2) * state->params->world_width, 5000.f, ((real32)state->params->chunk_tile_length / 2) * state->params->world_width };
+			light_pos = { ((real32)state->cur_preset->params.chunk_tile_length / 2) * state->cur_preset->params.world_width, 5000.f, ((real32)state->cur_preset->params.chunk_tile_length / 2) * state->cur_preset->params.world_width };
 		}
 
 		glUniform4fv(state->terrain_shader.plane, 1, no_clip);
 
-		glUniform1f(state->terrain_shader.ambient_strength, state->params->ambient_strength);
-		glUniform1f(state->terrain_shader.diffuse_strength, state->params->diffuse_strength);
-		glUniform1f(state->terrain_shader.specular_strength, state->params->specular_strength);
-		glUniform1f(state->terrain_shader.diffuse_strength, state->params->gamma_correction);
+		glUniform1f(state->terrain_shader.ambient_strength, state->cur_preset->params.ambient_strength);
+		glUniform1f(state->terrain_shader.diffuse_strength, state->cur_preset->params.diffuse_strength);
+		glUniform1f(state->terrain_shader.specular_strength, state->cur_preset->params.specular_strength);
+		glUniform1f(state->terrain_shader.diffuse_strength, state->cur_preset->params.gamma_correction);
 
 		glUniform3fv(state->terrain_shader.light_pos, 1, (GLfloat *)(&light_pos));
-		glUniform1f(state->terrain_shader.sand_height, state->params->sand_height);
-		glUniform1f(state->terrain_shader.snow_height, state->params->snow_height);
+		glUniform1f(state->terrain_shader.sand_height, state->cur_preset->params.sand_height);
+		glUniform1f(state->terrain_shader.snow_height, state->cur_preset->params.snow_height);
 
-		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&state->params->light_colour);
-		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&state->params->slope_colour);
-		glUniform3fv(state->terrain_shader.ground_colour, 1, (GLfloat *)&state->params->ground_colour);
-		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&state->params->sand_colour);
-		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&state->params->snow_colour);
+		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&state->cur_preset->params.light_colour);
+		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&state->cur_preset->params.slope_colour);
+		glUniform3fv(state->terrain_shader.ground_colour, 1, (GLfloat *)&state->cur_preset->params.ground_colour);
+		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&state->cur_preset->params.sand_colour);
+		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&state->cur_preset->params.snow_colour);
 
 		glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat *)&state->cur_cam.pos);
 
@@ -924,9 +925,9 @@ static void export_terrain(app_state *state)
 		glDisable(GL_DEPTH_TEST);
 		glViewport(0, 0, state->texture_map_data.resolution, state->texture_map_data.resolution);
 
-		for (u32 y = 0; y < state->params->world_width; y++) {
-			for (u32 x = 0; x < state->params->world_width; x++) {
-				u32 index = y * state->params->world_width + x;
+		for (u32 y = 0; y < state->cur_preset->params.world_width; y++) {
+			for (u32 x = 0; x < state->cur_preset->params.world_width; x++) {
+				u32 index = y * state->cur_preset->params.world_width + x;
 				glBindBuffer(GL_ARRAY_BUFFER, state->chunks[index]->vbo);
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->chunks[index]->ebo);
 				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
@@ -934,7 +935,7 @@ static void export_terrain(app_state *state)
 
 				real32 model[16];
 				mat4_identity(model);
-				mat4_translate(model, x * state->params->chunk_tile_length, 0, y * state->params->chunk_tile_length);
+				mat4_translate(model, x * state->cur_preset->params.chunk_tile_length, 0, y * state->cur_preset->params.chunk_tile_length);
 				glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
 
 				glDrawElements(GL_TRIANGLES, state->chunks[index]->lod_data_infos[0].quads_count * 6, GL_UNSIGNED_INT, (void *)(0));
@@ -954,23 +955,31 @@ static void export_terrain(app_state *state)
 	}
 }
 
-static void load_custom_preset_from_file(app_state *state)
+static void load_presets(app_state *state)
 {
-	std::ifstream file("custom.world", std::ios::binary);
+	for (auto &p : std::filesystem::directory_iterator(".")) {
+		if (p.path().extension() == ".world") {
+			std::ifstream file(p.path(), std::ios::binary);
 
-	if (file.good()) {
-		file.read((char *)&state->custom_parameters, sizeof(world_generation_parameters));
+			if (file.good()) {
+				preset_file p_file = {};
+				p_file.name = p.path().stem().string();
+				file.read((char *)&p_file.params, sizeof(world_generation_parameters));
+
+				state->presets.push_back(new preset_file(p_file));
+			}
+
+			file.close();
+		}
 	}
-
-	file.close();
 }
 
-static void save_custom_preset_to_file(app_state *state)
+static void save_custom_preset_to_file(preset_file *p_file)
 {
-	std::ofstream file("custom.world", std::ios::binary);
+	std::ofstream file(p_file->name + ".world", std::ios::binary);
 
 	if (file.good()) {
-		file.write((char *)&state->custom_parameters, sizeof(world_generation_parameters));
+		file.write((char *)&p_file->params, sizeof(world_generation_parameters));
 	}
 
 	file.close();
@@ -978,13 +987,13 @@ static void save_custom_preset_to_file(app_state *state)
 
 static void app_render(app_state *state)
 {
-	real32 reflection_clip[4] = { 0, 1, 0, -state->params->water_pos.y };
-	real32 refraction_clip[4] = { 0, -1, 0, state->params->water_pos.y };
+	real32 reflection_clip[4] = { 0, 1, 0, -state->cur_preset->params.water_pos.y };
+	real32 refraction_clip[4] = { 0, -1, 0, state->cur_preset->params.water_pos.y };
 	real32 no_clip[4] = { 0, -1, 0, 100000 };
 
 	Camera camera_backup = state->cur_cam;
 	Camera reflection_cam = state->cur_cam;
-	real32 distance = 2.f * (state->cur_cam.pos.y - state->params->water_pos.y);
+	real32 distance = 2.f * (state->cur_cam.pos.y - state->cur_preset->params.water_pos.y);
 	reflection_cam.pos.y -= distance;
 	reflection_cam.pitch *= -1;
 	camera_update(&reflection_cam);
@@ -996,7 +1005,7 @@ static void app_render(app_state *state)
 	glBindFramebuffer(GL_FRAMEBUFFER, state->water_frame_buffers.reflection_fbo);
 	glViewport(0, 0, state->water_frame_buffers.REFLECTION_WIDTH, state->water_frame_buffers.REFLECTION_HEIGHT);
 
-	glClearColor(state->params->skybox_colour.E[0], state->params->skybox_colour.E[1], state->params->skybox_colour.E[2], 1.f);
+	glClearColor(state->cur_preset->params.skybox_colour.E[0], state->cur_preset->params.skybox_colour.E[1], state->cur_preset->params.skybox_colour.E[2], 1.f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	state->cur_cam = reflection_cam;
@@ -1086,14 +1095,14 @@ static void app_render(app_state *state)
 
 	real32 model[16];
 	mat4_identity(model);
-	mat4_translate(model, state->world_tile_length / 2, state->params->water_pos.y, state->world_tile_length / 2);
+	mat4_translate(model, state->world_tile_length / 2, state->cur_preset->params.water_pos.y, state->world_tile_length / 2);
 	mat4_scale(model, state->world_tile_length, 1.f, state->world_tile_length);
 
 	glUniformMatrix4fv(state->water_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
 	glUniformMatrix4fv(state->water_shader.view, 1, GL_FALSE, state->cur_cam.view);
 	glUniformMatrix4fv(state->water_shader.model, 1, GL_FALSE, model);
 
-	glUniform3fv(state->water_shader.water_colour, 1, (GLfloat *)&state->params->water_colour);
+	glUniform3fv(state->water_shader.water_colour, 1, (GLfloat *)&state->cur_preset->params.water_colour);
 
 	glUniform1i(state->water_shader.reflection_texture, 0);
 	glUniform1i(state->water_shader.refraction_texture, 1);
@@ -1133,16 +1142,13 @@ static void app_render(app_state *state)
 	bool reinit_chunks = false;
 	bool update_camera = false;
 
-	u32 new_chunk_length = state->params->chunk_tile_length;
+	u32 new_chunk_length = state->cur_preset->params.chunk_tile_length;
 
 	ImGui::PushItemWidth(ui_item_width);
 
 	if (ImGui::TreeNode("Debug")) {
 		if (ImGui::Button("Toggle wireframe")) {
 			state->wireframe = !state->wireframe;
-		}
-		if (ImGui::Button("Toggle flying")) {
-			state->flying = !state->flying;
 		}
 
 		u32 quads_displayed = 0;
@@ -1182,7 +1188,7 @@ static void app_render(app_state *state)
 
 		ImGui::Checkbox("Include normals", (bool *)&state->export_settings.with_normals);
 
-		ImGui::Checkbox("Ambient + Diffuse map", (bool *)&state->export_settings.texture_map);
+		ImGui::Checkbox("Diffuse map", (bool *)&state->export_settings.texture_map);
 		if (state->export_settings.texture_map) {
 			static int texture_map_resolution_current = 0;
 			if (ImGui::Combo("texture resolution", &texture_map_resolution_current, texture_resolutions, 6 /* HARDCODED */)) {
@@ -1205,36 +1211,68 @@ static void app_render(app_state *state)
 	}
 
 	if (ImGui::TreeNode("Camera Settings")) {
+		ImGui::Checkbox("Flying", (bool*)&state->cur_cam.flying);
+
 		update_camera |= ImGui::SliderFloat("fov", &state->cur_cam.fov, 1.f, 120.f, "%.0f", ImGuiSliderFlags_None);
+		ImGui::SliderFloat("walk speed", &state->cur_cam.walk_speed, 1.f, 10.f, "%.2f", ImGuiSliderFlags_None);
+		ImGui::SliderFloat("flying speed", &state->cur_cam.fly_speed, 1.f, 200.f, "%.2f", ImGuiSliderFlags_None);
 
 		ImGui::TreePop();
 	}
 
-	if (ImGui::TreeNode("Presets")) {
+	if (ImGui::TreeNode("Save/Load Presets")) {
 		bool custom, plains, desert, mountains;
 		custom = plains = desert = mountains = false;
 
-		custom = ImGui::Button("Custom"); ImGui::SameLine();
+		std::string s = "Current preset: " + state->cur_preset->name;
+		ImGui::Text(s.c_str());
 		if (ImGui::Button("Save")) {
-			save_custom_preset_to_file(state);
+			save_custom_preset_to_file(state->cur_preset);
+		} 
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Save to new")) {
+			state->show_save_new_prompt = true;
 		}
 
-		plains = ImGui::Button("Green Plains");
-		desert = ImGui::Button("Rugged Desert");
-		mountains = ImGui::Button("Harsh Mountains");
-		regenerate_chunks = custom || plains || desert || mountains;
+		if (state->show_save_new_prompt) {
+			ImGui::Separator();
 
-		if (custom) {
-			state->params = &state->custom_parameters;
+			ImGui::InputText("Name", &state->new_preset_name);
+
+			if (ImGui::Button("Confirm")) {
+				preset_file p_file = {};
+				p_file.name = state->new_preset_name;
+				p_file.params = state->cur_preset->params;
+
+				state->presets.push_back(new preset_file(p_file));
+				state->cur_preset = state->presets.back();
+				state->new_preset_name = "";
+
+				save_custom_preset_to_file(state->presets.back());
+
+				state->show_save_new_prompt = false;
+			}
+			
+			ImGui::SameLine();
+			
+			if (ImGui::Button("Cancel")) {
+				state->show_save_new_prompt = false;
+				state->new_preset_name = "";
+			}
 		}
-		else if (plains) {
-			state->params = &state->green_plains_parameters;
-		}
-		else if (desert) {
-			state->params = &state->rugged_desert_parameters;
-		}
-		else if (mountains) {
-			state->params = &state->harsh_mountains_parameters;
+
+		ImGui::Separator();
+		
+		ImGui::Text("Presets:");
+
+		for (auto &p : state->presets) {
+			std::string s(p->name);
+			if (ImGui::Button(s.c_str())) {
+				state->cur_preset = p;
+				regenerate_chunks |= true;
+			}
 		}
 
 		ImGui::TreePop();
@@ -1255,14 +1293,14 @@ static void app_render(app_state *state)
 
 		ImGui::PushItemWidth(ui_item_width);
 
-		reseed |= ImGui::InputInt("Seed", (int *)&state->params->seed); ImGui::SameLine();
+		reseed |= ImGui::InputInt("Seed", (int *)&state->cur_preset->params.seed); ImGui::SameLine();
 		regenerate_chunks |= ImGui::Button("Regenerate");
 
-		static int world_width_ui = state->params->world_width;
+		static int world_width_ui = state->cur_preset->params.world_width;
 		reinit_chunks |= ImGui::InputInt("World Width", (int *)&world_width_ui);
 
-		if (world_width_ui != state->params->world_width) {
-			state->params->world_width = world_width_ui;
+		if (world_width_ui != state->cur_preset->params.world_width) {
+			state->cur_preset->params.world_width = world_width_ui;
 		}
 
 		ImGui::Text("Chunk size:"); ImGui::SameLine();
@@ -1295,14 +1333,14 @@ static void app_render(app_state *state)
 		}
 
 		if (ImGui::TreeNode("Parameters")) {
-			regenerate_chunks |= ImGui::SliderFloat("x offset", &state->params->x_offset, 0, 20.f, "%.2f", ImGuiSliderFlags_None);
-			regenerate_chunks |= ImGui::SliderFloat("z offset", &state->params->z_offset, 0, 20.f, "%.2f", ImGuiSliderFlags_None);
-			regenerate_chunks |= ImGui::SliderFloat("scale", &state->params->scale, 0.1, 10.f, "%.2f", ImGuiSliderFlags_None);
-			regenerate_chunks |= ImGui::SliderFloat("height", &state->params->y_scale, 0.f, 200.f, "%.2f", ImGuiSliderFlags_None);
-			regenerate_chunks |= ImGui::SliderFloat("ruggedness", &state->params->lacunarity, 0.f, 3.f, "%.2f", ImGuiSliderFlags_None);
-			regenerate_chunks |= ImGui::SliderFloat("detail", &state->params->persistence, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-			regenerate_chunks |= ImGui::SliderFloat("elevation factor", &state->params->elevation_power, 0.f, 5.f, "%.2f", ImGuiSliderFlags_None);
-			regenerate_chunks |= ImGui::SliderInt("octaves", &state->params->max_octaves, 1, 20, "%d", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderFloat("x offset", &state->cur_preset->params.x_offset, 0, 20.f, "%.2f", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderFloat("z offset", &state->cur_preset->params.z_offset, 0, 20.f, "%.2f", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderFloat("scale", &state->cur_preset->params.scale, 0.1, 10.f, "%.2f", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderFloat("height", &state->cur_preset->params.y_scale, 0.f, 200.f, "%.2f", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderFloat("ruggedness", &state->cur_preset->params.lacunarity, 0.f, 3.f, "%.2f", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderFloat("detail", &state->cur_preset->params.persistence, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderFloat("elevation factor", &state->cur_preset->params.elevation_power, 0.f, 5.f, "%.2f", ImGuiSliderFlags_None);
+			regenerate_chunks |= ImGui::SliderInt("octaves", &state->cur_preset->params.max_octaves, 1, 20, "%d", ImGuiSliderFlags_None);
 			ImGui::TreePop();
 		}
 
@@ -1315,9 +1353,9 @@ static void app_render(app_state *state)
 			}
 
 			if (ImGui::TreeNode("Strength")) {
-				ImGui::SliderFloat("ambient", &state->params->ambient_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("diffuse", &state->params->diffuse_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("specular", &state->params->specular_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("ambient", &state->cur_preset->params.ambient_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("diffuse", &state->cur_preset->params.diffuse_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("specular", &state->cur_preset->params.specular_strength, 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
@@ -1326,65 +1364,65 @@ static void app_render(app_state *state)
 
 		if (ImGui::TreeNode("Colours")) {
 			if (ImGui::TreeNode("Lighting")) {
-				ImGui::SliderFloat("colour red", &state->params->light_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("colour green", &state->params->light_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("colour blue", &state->params->light_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("colour red", &state->cur_preset->params.light_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("colour green", &state->cur_preset->params.light_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("colour blue", &state->cur_preset->params.light_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Ground")) {
-				ImGui::SliderFloat("ground colour red", &state->params->ground_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("ground colour green", &state->params->ground_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("ground colour blue", &state->params->ground_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("ground colour red", &state->cur_preset->params.ground_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("ground colour green", &state->cur_preset->params.ground_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("ground colour blue", &state->cur_preset->params.ground_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Slope")) {
-				ImGui::SliderFloat("red", &state->params->slope_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("green", &state->params->slope_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("blue", &state->params->slope_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("red", &state->cur_preset->params.slope_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset->params.slope_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset->params.slope_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Water")) {
-				ImGui::SliderFloat("red", &state->params->water_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("green", &state->params->water_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("blue", &state->params->water_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("red", &state->cur_preset->params.water_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset->params.water_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset->params.water_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Sand")) {
-				ImGui::SliderFloat("red", &state->params->sand_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("green", &state->params->sand_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("blue", &state->params->sand_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("red", &state->cur_preset->params.sand_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset->params.sand_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset->params.sand_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Stone")) {
-				ImGui::SliderFloat("stone colour red", &state->params->stone_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("stone colour green", &state->params->stone_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("stone colour blue", &state->params->stone_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("stone colour red", &state->cur_preset->params.stone_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("stone colour green", &state->cur_preset->params.stone_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("stone colour blue", &state->cur_preset->params.stone_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Snow")) {
-				ImGui::SliderFloat("red", &state->params->snow_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("green", &state->params->snow_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("blue", &state->params->snow_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("red", &state->cur_preset->params.snow_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset->params.snow_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset->params.snow_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Sky")) {
-				ImGui::SliderFloat("red", &state->params->skybox_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("green", &state->params->skybox_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("blue", &state->params->skybox_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("red", &state->cur_preset->params.skybox_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset->params.skybox_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset->params.skybox_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Rock")) {
-				ImGui::SliderFloat("red", &state->params->rock_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("green", &state->params->rock_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("blue", &state->params->rock_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("red", &state->cur_preset->params.rock_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("green", &state->cur_preset->params.rock_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("blue", &state->cur_preset->params.rock_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::TreePop();
 			}
 
@@ -1392,23 +1430,23 @@ static void app_render(app_state *state)
 		}
 
 		if (ImGui::TreeNode("Heightmap")) {
-			ImGui::SliderFloat("water height", &state->params->water_pos.y, 0.f, 50.f, "%.2f", ImGuiSliderFlags_None);
-			ImGui::SliderFloat("sand start height", &state->params->sand_height, 0.f, 100.f, "%.2f", ImGuiSliderFlags_None);
-			ImGui::SliderFloat("stone start height", &state->params->stone_height, 0.f, 250.f, "%.2f", ImGuiSliderFlags_None);
-			ImGui::SliderFloat("snow start height", &state->params->snow_height, 0.f, 500.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("water height", &state->cur_preset->params.water_pos.y, 0.f, 50.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("sand start height", &state->cur_preset->params.sand_height, 0.f, 100.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("stone start height", &state->cur_preset->params.stone_height, 0.f, 250.f, "%.2f", ImGuiSliderFlags_None);
+			ImGui::SliderFloat("snow start height", &state->cur_preset->params.snow_height, 0.f, 500.f, "%.2f", ImGuiSliderFlags_None);
 			ImGui::TreePop();
 		}
 
 		if (ImGui::TreeNode("Features")) {
 			if (ImGui::TreeNode("Trees")) {
-				ImGui::SliderInt("tree count", (int *)&state->params->tree_count, 0, state->params->max_trees, "%d", ImGuiSliderFlags_None);
-				ImGui::SliderInt("tree min height", (int *)&state->params->tree_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
-				ImGui::SliderInt("tree max height", (int *)&state->params->tree_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderInt("tree count", (int *)&state->cur_preset->params.tree_count, 0, state->cur_preset->params.max_trees, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderInt("tree min height", (int *)&state->cur_preset->params.tree_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderInt("tree max height", (int *)&state->cur_preset->params.tree_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
 
 				if (ImGui::TreeNode("Colour")) {
-					ImGui::SliderFloat("red", &state->params->tree_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("green", &state->params->tree_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("blue", &state->params->tree_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("red", &state->cur_preset->params.tree_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("green", &state->cur_preset->params.tree_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("blue", &state->cur_preset->params.tree_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 					ImGui::TreePop();
 				}
 
@@ -1417,15 +1455,15 @@ static void app_render(app_state *state)
 			}
 
 			if (ImGui::TreeNode("Rocks")) {
-				ImGui::SliderInt("rock count", (int *)&state->params->rock_count, 0, state->params->max_rocks, "%d", ImGuiSliderFlags_None);
-				ImGui::SliderFloat("rock size", &state->params->rock_size, 0.1f, 5.f, "%.2f", ImGuiSliderFlags_None);
-				ImGui::SliderInt("rock min height", (int *)&state->params->rock_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
-				ImGui::SliderInt("rock max height", (int *)&state->params->rock_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderInt("rock count", (int *)&state->cur_preset->params.rock_count, 0, state->cur_preset->params.max_rocks, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("rock size", &state->cur_preset->params.rock_size, 0.1f, 5.f, "%.2f", ImGuiSliderFlags_None);
+				ImGui::SliderInt("rock min height", (int *)&state->cur_preset->params.rock_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderInt("rock max height", (int *)&state->cur_preset->params.rock_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
 
 				if (ImGui::TreeNode("Colour")) {
-					ImGui::SliderFloat("red", &state->params->rock_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("green", &state->params->rock_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("blue", &state->params->rock_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("red", &state->cur_preset->params.rock_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("green", &state->cur_preset->params.rock_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("blue", &state->cur_preset->params.rock_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 					ImGui::TreePop();
 				}
 
@@ -1444,24 +1482,24 @@ static void app_render(app_state *state)
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 	if (reseed) {
-		state->rng.seed(state->params->seed);
+		state->rng.seed(state->cur_preset->params.seed);
 		seed_perlin(state->rng);
 	}
 
 	if (regenerate_chunks || reinit_chunks) {
 		if (reinit_chunks) {
-			if (state->params->world_width < 1) {
-				state->params->world_width = 1;
+			if (state->cur_preset->params.world_width < 1) {
+				state->cur_preset->params.world_width = 1;
 			}
 
-			init_terrain(state, new_chunk_length, state->params->world_width);
+			init_terrain(state, new_chunk_length, state->cur_preset->params.world_width);
 		}
 
 		generate_world(state);
 	}
 
 	if (regenerate_lods) {
-		init_lod_detail_levels(&state->lod_settings, state->params->chunk_tile_length);
+		init_lod_detail_levels(&state->lod_settings, state->cur_preset->params.chunk_tile_length);
 		generate_world(state, true);
 	}
 
@@ -1482,11 +1520,11 @@ static void app_render(app_state *state)
 static void init_terrain(app_state *state, u32 chunk_tile_length, u32 world_width)
 {
 	// ---Terrain data.
-	state->params->chunk_tile_length = chunk_tile_length;
-	state->chunk_vertices_length = state->params->chunk_tile_length + 1;
-	state->params->world_width = world_width;
-	state->world_area = state->params->world_width * state->params->world_width;
-	state->world_tile_length = state->params->chunk_tile_length * state->params->world_width;
+	state->cur_preset->params.chunk_tile_length = chunk_tile_length;
+	state->chunk_vertices_length = state->cur_preset->params.chunk_tile_length + 1;
+	state->cur_preset->params.world_width = world_width;
+	state->world_area = state->cur_preset->params.world_width * state->cur_preset->params.world_width;
+	state->world_tile_length = state->cur_preset->params.chunk_tile_length * state->cur_preset->params.world_width;
 	// ---End of terrain data.
 
 	// ---LOD settings
@@ -1500,14 +1538,14 @@ static void init_terrain(app_state *state, u32 chunk_tile_length, u32 world_widt
 	state->lod_settings.max_detail_multiplier = 1;
 
 	// Calculate the maximum possible detail multiplier for the chunk size.
-	while (pow(2, 5 + state->lod_settings.max_detail_multiplier) <= state->params->chunk_tile_length) {
+	while (pow(2, 5 + state->lod_settings.max_detail_multiplier) <= state->cur_preset->params.chunk_tile_length) {
 		state->lod_settings.max_detail_multiplier++;
 	}
 
 	state->lod_settings.max_details_count = 10;
 	state->lod_settings.details = (u32 *)malloc(state->lod_settings.max_details_count * sizeof(u32));
 
-	init_lod_detail_levels(&state->lod_settings, state->params->chunk_tile_length);
+	init_lod_detail_levels(&state->lod_settings, state->cur_preset->params.chunk_tile_length);
 	// ---end of LOD settings.
 
 	if (state->world_area > state->chunks.size()) {
@@ -1520,12 +1558,12 @@ static void init_terrain(app_state *state, u32 chunk_tile_length, u32 world_widt
 	}
 
 	state->chunk_count = 0;
-	for (u32 j = 0; j < state->params->world_width; j++) {
-		for (u32 i = 0; i < state->params->world_width; i++) {
-			u32 index = j * state->params->world_width + i;
+	for (u32 j = 0; j < state->cur_preset->params.world_width; j++) {
+		for (u32 i = 0; i < state->cur_preset->params.world_width; i++) {
+			u32 index = j * state->cur_preset->params.world_width + i;
 
 			u64 chunk_vertices_size = (u64)state->chunk_vertices_length * state->chunk_vertices_length * sizeof(Vertex);
-			u64 chunk_lods_size = (u64)state->lod_settings.max_available_count * state->params->chunk_tile_length * state->params->chunk_tile_length * sizeof(QuadIndices);
+			u64 chunk_lods_size = (u64)state->lod_settings.max_available_count * state->cur_preset->params.chunk_tile_length * state->cur_preset->params.chunk_tile_length * sizeof(QuadIndices);
 			u32 vertices_count = state->chunk_vertices_length * state->chunk_vertices_length;
 
 			state->chunks[index]->vertices_count = vertices_count;
@@ -1635,85 +1673,66 @@ app_state *app_init(u32 w, u32 h)
 	// ---End of shaders
 
 	// --- Default generation parameters if no file is present.
-	state->custom_parameters.seed = 10;
-	state->custom_parameters.chunk_tile_length = 64;
-	state->custom_parameters.world_width = 3;
-	state->custom_parameters.x_offset = 10.f;
-	state->custom_parameters.z_offset = 10.f;
-	state->custom_parameters.scale = 3.f;
-	state->custom_parameters.lacunarity = 1.65f;
-	state->custom_parameters.persistence = 0.5f;
-	state->custom_parameters.elevation_power = 3.f;
-	state->custom_parameters.y_scale = 35.f;
-	state->custom_parameters.max_octaves = 10;
-	state->custom_parameters.water_pos.x = 0;
-	state->custom_parameters.water_pos.y = 1.2f * state->custom_parameters.scale;
-	state->custom_parameters.water_pos.z = 0;
-	state->custom_parameters.sand_height = 1.5f * state->custom_parameters.scale;
-	state->custom_parameters.stone_height = 20.f * state->custom_parameters.scale;
-	state->custom_parameters.snow_height = 50.f * state->custom_parameters.scale;
-	state->custom_parameters.ambient_strength = 0.5f;
-	state->custom_parameters.diffuse_strength = 0.5f;
-	state->custom_parameters.specular_strength = 0.05f;
-	state->custom_parameters.gamma_correction = 2.2f;
-	state->custom_parameters.light_colour = { 1.f, 0.95f, 0.95f };
-	state->custom_parameters.ground_colour = { 0.07f, 0.2f, 0.07f };
-	state->custom_parameters.sand_colour = { 0.8f, 0.81f, 0.55f };
-	state->custom_parameters.stone_colour = { 0.2f, 0.2f, 0.2f };
-	state->custom_parameters.snow_colour = { 0.8f, 0.8f, 0.8f };
-	state->custom_parameters.slope_colour = { 0.45f, 0.5f, 0.35f };
-	state->custom_parameters.water_colour = { .31f, .31f, 0.35f };
-	state->custom_parameters.skybox_colour = { 0.65f, 0.65f, 1.f };
-	state->custom_parameters.tree_colour = { 0.65f, 0.65f, 0.3f };
-	state->custom_parameters.rock_colour = { 0.3f, 0.3f, 0.3f };
-	state->custom_parameters.tree_count = 0;
-	state->custom_parameters.tree_min_height = state->custom_parameters.sand_height;
-	state->custom_parameters.tree_max_height = state->custom_parameters.snow_height;
-	state->custom_parameters.max_trees = 10000;
-	state->custom_parameters.rock_count = 0;
-	state->custom_parameters.rock_size = 1.f;
-	state->custom_parameters.rock_min_height = state->custom_parameters.sand_height;
-	state->custom_parameters.rock_max_height = state->custom_parameters.snow_height;
-	state->custom_parameters.max_rocks = 1000;
+	state->presets.push_back(new preset_file);
 
-	// Built in presets are based off the default custom parameters.
-	state->green_plains_parameters = state->custom_parameters;
-	state->green_plains_parameters.elevation_power = 2.5f;
-	state->green_plains_parameters.y_scale = 40.;
-	state->green_plains_parameters.lacunarity = 1.65f;
-	state->green_plains_parameters.water_pos.y = 4.f;
-	state->green_plains_parameters.sand_height = 4.5f;
-
-	state->rugged_desert_parameters = state->custom_parameters;
-	state->rugged_desert_parameters.persistence = 0.6f;
-	state->rugged_desert_parameters.lacunarity = 1.7f;
-	state->rugged_desert_parameters.y_scale = 60.f;
-	state->rugged_desert_parameters.water_pos.y = -1;
-	state->rugged_desert_parameters.sand_height = 110;
-	state->rugged_desert_parameters.snow_height = 75;
-
-	state->harsh_mountains_parameters = state->custom_parameters;
-	state->harsh_mountains_parameters.y_scale = 120.f;
-	state->harsh_mountains_parameters.lacunarity = 1.7f;
-	state->harsh_mountains_parameters.persistence = 0.51f;
-	state->harsh_mountains_parameters.elevation_power = 4.f;
+	state->presets[0]->name = "default";
+	state->presets[0]->params.seed = 10;
+	state->presets[0]->params.chunk_tile_length = 64;
+	state->presets[0]->params.world_width = 3;
+	state->presets[0]->params.x_offset = 10.f;
+	state->presets[0]->params.z_offset = 10.f;
+	state->presets[0]->params.scale = 3.f;
+	state->presets[0]->params.lacunarity = 1.65f;
+	state->presets[0]->params.persistence = 0.5f;
+	state->presets[0]->params.elevation_power = 3.f;
+	state->presets[0]->params.y_scale = 35.f;
+	state->presets[0]->params.max_octaves = 10;
+	state->presets[0]->params.water_pos.x = 0;
+	state->presets[0]->params.water_pos.y = 1.2f * state->presets[0]->params.scale;
+	state->presets[0]->params.water_pos.z = 0;
+	state->presets[0]->params.sand_height = 1.5f * state->presets[0]->params.scale;
+	state->presets[0]->params.stone_height = 20.f * state->presets[0]->params.scale;
+	state->presets[0]->params.snow_height = 50.f * state->presets[0]->params.scale;
+	state->presets[0]->params.ambient_strength = 0.5f;
+	state->presets[0]->params.diffuse_strength = 0.5f;
+	state->presets[0]->params.specular_strength = 0.05f;
+	state->presets[0]->params.gamma_correction = 2.2f;
+	state->presets[0]->params.light_colour = { 1.f, 0.95f, 0.95f };
+	state->presets[0]->params.ground_colour = { 0.07f, 0.2f, 0.07f };
+	state->presets[0]->params.sand_colour = { 0.8f, 0.81f, 0.55f };
+	state->presets[0]->params.stone_colour = { 0.2f, 0.2f, 0.2f };
+	state->presets[0]->params.snow_colour = { 0.8f, 0.8f, 0.8f };
+	state->presets[0]->params.slope_colour = { 0.45f, 0.5f, 0.35f };
+	state->presets[0]->params.water_colour = { .31f, .31f, 0.35f };
+	state->presets[0]->params.skybox_colour = { 0.65f, 0.65f, 1.f };
+	state->presets[0]->params.tree_colour = { 0.65f, 0.65f, 0.3f };
+	state->presets[0]->params.rock_colour = { 0.3f, 0.3f, 0.3f };
+	state->presets[0]->params.tree_count = 0;
+	state->presets[0]->params.tree_min_height = state->presets[0]->params.sand_height;
+	state->presets[0]->params.tree_max_height = state->presets[0]->params.snow_height;
+	state->presets[0]->params.max_trees = 10000;
+	state->presets[0]->params.rock_count = 0;
+	state->presets[0]->params.rock_size = 1.f;
+	state->presets[0]->params.rock_min_height = state->presets[0]->params.sand_height;
+	state->presets[0]->params.rock_max_height = state->presets[0]->params.snow_height;
+	state->presets[0]->params.max_rocks = 1000;
 
 	// Attempt to load custom parameters from file.
-	load_custom_preset_from_file(state);
+	load_presets(state);
 
-	state->params = &state->custom_parameters;
+	state->cur_preset = state->presets[0];
 	// ---End of generation parameters
 
-	init_terrain(state, state->params->chunk_tile_length, state->params->world_width);
+	init_terrain(state, state->cur_preset->params.chunk_tile_length, state->cur_preset->params.world_width);
 	init_water_data(state);
 	init_terrain_texture_maps(state);
 	init_depth_map(state);
 
-	state->trees = (V3 *)malloc(state->params->max_trees * sizeof V3);
-	state->rocks_pos = (V3 *)malloc(state->params->max_rocks * sizeof V3);
-	state->rocks_rotation = (V3 *)malloc(state->params->max_rocks * sizeof V3);
+	state->trees = (V3 *)malloc(state->cur_preset->params.max_trees * sizeof V3);
+	state->rocks_pos = (V3 *)malloc(state->cur_preset->params.max_rocks * sizeof V3);
+	state->rocks_rotation = (V3 *)malloc(state->cur_preset->params.max_rocks * sizeof V3);
 
-	state->rng = std::mt19937(state->params->seed);
+	state->rng = std::mt19937(state->cur_preset->params.seed);
 
 	seed_perlin(state->rng);
 	generate_world(state);
@@ -1728,18 +1747,19 @@ app_state *app_init(u32 w, u32 h)
 	camera_frustrum(&state->cur_cam, state->window_info.w, state->window_info.h);
 	camera_ortho(&state->cur_cam, state->window_info.w, state->window_info.h);
 
-	state->light_pos = { -5000.f, 5000.f, ((real32)state->params->chunk_tile_length / 2) * state->params->world_width * 1.f};
+	state->light_pos = { -5000.f, 5000.f, ((real32)state->cur_preset->params.chunk_tile_length / 2) * state->cur_preset->params.world_width * 1.f};
 
 	state->export_settings = {};
 
 	state->wireframe = false;
-	state->flying = true;
 
 	state->rock = load_object("Rock1.obj");
 	create_vbos(state->rock);
 
 	state->terrain_settings_open = true;
 	state->general_settings_open = true;
+	state->show_save_new_prompt = false;
+	state->new_preset_name = "";
 
 	return state;
 }
@@ -1778,13 +1798,8 @@ void app_handle_input(real32 dt, app_state *state, app_keyboard_input *keyboard)
 		state->wireframe = !state->wireframe;
 	}
 
-	if (keyboard->reset.toggled) {
-		seed_perlin(state->rng);
-		generate_world(state);
-	}
-
 	if (keyboard->fly.toggled) {
-		state->flying = !state->flying;
+		state->cur_cam.flying = !state->cur_cam.flying;
 	}
 }
 
@@ -1794,43 +1809,59 @@ void app_update(app_state *state)
 	real32 contrained_x = min(state->world_tile_length - 1, max(0, state->cur_cam.pos.x));
 	real32 contrained_z = min(state->world_tile_length - 1, max(0, state->cur_cam.pos.z));
 
-	const u32 current_chunk_x = (u32)(contrained_x / state->params->chunk_tile_length);
-	const u32 current_chunk_z = (u32)(contrained_z / state->params->chunk_tile_length);
+	const u32 current_chunk_x = (u32)(contrained_x / state->cur_preset->params.chunk_tile_length);
+	const u32 current_chunk_z = (u32)(contrained_z / state->cur_preset->params.chunk_tile_length);
 
-	state->current_chunk = state->chunks[current_chunk_z * state->params->world_width + current_chunk_x];
+	state->current_chunk = state->chunks[current_chunk_z * state->cur_preset->params.world_width + current_chunk_x];
 
-	if (!state->flying) {
-		real32 cam_pos_x_relative = contrained_x - current_chunk_x * state->params->chunk_tile_length;
-		real32 cam_pos_z_relative = contrained_z - current_chunk_z * state->params->chunk_tile_length;
+	if (!state->cur_cam.flying) {
+		real32 cam_pos_x_relative = contrained_x - current_chunk_x * state->cur_preset->params.chunk_tile_length;
+		real32 cam_pos_z_relative = contrained_z - current_chunk_z * state->cur_preset->params.chunk_tile_length;
 
-		const u32 i0 = (u32)cam_pos_z_relative * state->chunk_vertices_length + (u32)cam_pos_x_relative;
+		const u32 camera_vertex = (u32)cam_pos_z_relative * state->chunk_vertices_length + (u32)cam_pos_x_relative;
 		QuadIndices *camera_quad = &state->current_chunk->lod_data_infos[0].quads[0];
 
 		// Find the quad who's first vertex is the vertex bottom-left of the camera.
 		for (u32 quad_index = 0; quad_index < state->current_chunk->lod_data_infos[0].quads_count; quad_index++) {
-			if (state->current_chunk->lod_data_infos[0].quads[quad_index].i[2] == i0) {
+			if (state->current_chunk->lod_data_infos[0].quads[quad_index].i[2] == camera_vertex) {
 				camera_quad = &state->current_chunk->lod_data_infos[0].quads[quad_index];
 				break;
 			}
 		}
 
-		// See mesh generation for how triangles are arranged.
-		const u32 i1 = camera_quad->i[1];
-		const u32 i2 = camera_quad->i[3];
-		const u32 i3 = camera_quad->i[0];
+		// We now need to find which triangle the camera is in.
+		// To do this we can compare the distance from the left edge with the bottom edge.
+		// p1?===== p2
+		// |       /|
+		// |    /   | <---- p3?
+		// | /      |
+		// p0 ===== p1?
+		V3 p3 = { cam_pos_x_relative, state->cur_cam.pos.y, cam_pos_z_relative };
+
+		u32 i0, i1, i2;
+		i0 = camera_vertex;
+		
+		// p2 connects both triangles so we can set the vertex early.
+		i2 = camera_quad->i[0]; // Top right index.
+
+		// Find which triangle the camera is on.
+		if (contrained_x - state->current_chunk->vertices[i0].pos.x > contrained_z - state->current_chunk->vertices[i0].pos.z) {
+			// bottom right triangle
+			i1 = camera_quad->i[1]; // bottom right index.
+		} else {
+			// top left triangle
+			i1 = camera_quad->i[3]; // top left index.
+		}
 
 		V3 p0 = state->current_chunk->vertices[i0].pos;
 		V3 p1 = state->current_chunk->vertices[i1].pos;
 		V3 p2 = state->current_chunk->vertices[i2].pos;
-		V3 p3 = state->current_chunk->vertices[i3].pos;
 
-		V3 n = v3_cross(p1 - p0, p2 - p1);
-		n = v3_normalise(n);
-
-		real32 d = v3_dot(n, p0);
-		const real32 y = (d - (n.x * cam_pos_x_relative) - (n.z * cam_pos_z_relative)) / n.y;
-
-		state->cur_cam.pos.y = y + 0.7f;
+		// Plane equation found here from DanielKO's answer.
+		// https://stackoverflow.com/questions/18755251/linear-interpolation-of-three-3d-points-in-3d-space
+		const V3 N = v3_cross(p1 - p0, p2 - p0);
+		const real32 y = p0.y - ((p3.x - p0.x) * N.x + (p3.z - p0.z) * N.z) / N.y;
+		state->cur_cam.pos.y = y + 0.8f;
 	}
 }
 

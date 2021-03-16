@@ -4,6 +4,7 @@
 #include <thread>
 #include <random>
 #include <vector>
+#include <array>
 
 #include "types.h"
 #include "maths.h"
@@ -33,7 +34,6 @@ struct app_keyboard_input {
             app_button_state cam_left;
             app_button_state cam_right;
             app_button_state wireframe;
-            app_button_state reset;
             app_button_state fly;
         };
     };
@@ -95,6 +95,11 @@ struct world_generation_parameters {
     u32 rock_min_height;
     u32 rock_max_height;
     u32 max_rocks;
+};
+
+struct preset_file {
+    std::string name;
+    world_generation_parameters params;
 };
 
 struct TerrainShader {
@@ -224,11 +229,8 @@ struct app_state {
     WaterShader water_shader;
     DepthShader depth_shader;
 
-    world_generation_parameters custom_parameters;
-    world_generation_parameters green_plains_parameters;
-    world_generation_parameters rugged_desert_parameters;
-    world_generation_parameters harsh_mountains_parameters;
-    world_generation_parameters *params;
+    std::vector<preset_file*> presets;
+    preset_file *cur_preset;
 
     ExportSettings export_settings;
     TextureMapData texture_map_data;
@@ -258,10 +260,12 @@ struct app_state {
     u32 depth_map_fbo, depth_map;
 
     bool32 wireframe;
-    bool32 flying;
     
     bool general_settings_open;
     bool terrain_settings_open;
+    bool show_save_new_prompt;
+
+    std::string new_preset_name;
 };
 
 extern void app_update_and_render(real32 dt, app_state *state, app_input *input, app_window_info *window_info);

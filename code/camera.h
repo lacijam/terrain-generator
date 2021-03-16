@@ -12,9 +12,11 @@ struct Camera {
 	real32 frustrum[16];
 	real32 ortho[16];
 	real32 yaw, pitch;
-	real32 vel;
+	real32 fly_speed;
+	real32 walk_speed;
 	real32 look_speed;
 	real32 fov;
+	bool32 flying;
 };
 
 extern void camera_init(Camera *cam);

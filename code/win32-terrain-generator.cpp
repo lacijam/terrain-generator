@@ -137,7 +137,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			BYTE keys[256];
 			GetKeyboardState(keys);
 			input.keyboard.wireframe.started_down = keys['G'] & 0x80;
-			input.keyboard.reset.started_down = keys['R'] & 0x80;
 			input.keyboard.fly.started_down = keys['F'] & 0x80;
 
 			while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
@@ -160,8 +159,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			input.keyboard.cam_right.ended_down = keys[VK_RIGHT] & 0x80;
 			input.keyboard.wireframe.ended_down = keys['G'] & 0x80;
 			input.keyboard.wireframe.toggled = !input.keyboard.wireframe.started_down && keys['G'] & 0x80;
-			input.keyboard.reset.ended_down = keys['R'] & 0x80;
-			input.keyboard.reset.toggled = !input.keyboard.reset.started_down && keys['R'] & 0x80;
 			input.keyboard.fly.ended_down = keys['F'] & 0x80;
 			input.keyboard.fly.toggled = !input.keyboard.fly.started_down && keys['F'] & 0x80;
 

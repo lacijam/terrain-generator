@@ -12,9 +12,11 @@ void camera_init(Camera *cam)
 	mat4_identity(cam->ortho);
 	cam->yaw = 0;
 	cam->pitch = 0;
-	cam->vel = 100.f;
+	cam->fly_speed = 100.f;
+	cam->walk_speed = 3.f;
 	cam->look_speed = 100.f;
 	cam->fov = 60.f;
+	cam->flying = true;
 }
 
 void camera_frustrum(Camera *cam, u32 cx, u32 cy)
@@ -54,22 +56,46 @@ void camera_update(Camera *cam)
 
 inline void camera_move_forward(Camera *cam, real32 dt)
 {
-	cam->pos += cam->vel * dt * cam->front;
+	real32 vel = cam->walk_speed;
+
+	if (cam->flying) {
+		vel = cam->fly_speed;
+	}
+
+	cam->pos += vel * dt * cam->front;
 }
 
 inline void camera_move_backward(Camera *cam, real32 dt)
 {
-	cam->pos -= cam->vel * dt * cam->front;
+	real32 vel = cam->walk_speed;
+
+	if (cam->flying) {
+		vel = cam->fly_speed;
+	}
+
+	cam->pos -= vel * dt * cam->front;
 }
 
 inline void camera_move_left(Camera *cam, real32 dt)
 {
-	cam->pos -= v3_normalise(v3_cross(cam->front, cam->up)) * cam->vel * dt;
+	real32 vel = cam->walk_speed;
+
+	if (cam->flying) {
+		vel = cam->fly_speed;
+	}
+
+	cam->pos -= v3_normalise(v3_cross(cam->front, cam->up)) * vel * dt;
 }
 
 inline void camera_move_right(Camera *cam, real32 dt)
 {
-	cam->pos += v3_normalise(v3_cross(cam->front, cam->up)) * cam->vel * dt;
+	real32 vel = cam->walk_speed;
+
+	if (cam->flying) {
+		vel = cam->fly_speed;
+	}
+
+	cam->pos += v3_normalise(v3_cross(cam->front, cam->up)) * vel * dt;
 }
 
 inline void camera_look_at(Camera *cam)
