@@ -409,7 +409,7 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 	}
 }
 
-static void app_render_lights_and_features(app_state *state)
+static void app_render_features(app_state *state)
 {
 	glUseProgram(state->simple_shader.program);
 
@@ -419,7 +419,6 @@ static void app_render_lights_and_features(app_state *state)
 
 	glUniform3fv(state->simple_shader.light_pos, 1, (GLfloat *)(&state->light_pos));
 	glUniform3fv(state->simple_shader.light_colour, 1, (GLfloat *)&state->cur_preset.params.light_colour);
-	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.tree_colour);
 
 	glUniformMatrix4fv(state->simple_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
 	glUniformMatrix4fv(state->simple_shader.view, 1, GL_FALSE, state->cur_cam.view);
@@ -428,25 +427,55 @@ static void app_render_lights_and_features(app_state *state)
 
 	glBindVertexArray(state->triangle_vao);
 
-	// Render trees
-	/*glBindBuffer(GL_ARRAY_BUFFER, state->tree->vbos[0]);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->tree->vbos[1]);
+	// Render trunks
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.trunk_colour);
+
+	glBindBuffer(GL_ARRAY_BUFFER, state->trunk->vbos[0]);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->trunk->vbos[1]);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
 
 	for (u32 i = 0; i < state->cur_preset.params.tree_count; i++) {
-		if (state->trees[i].y < state->cur_preset.params.tree_min_height || state->trees[i].y > state->cur_preset.params.tree_max_height) {
+		if (state->trees_pos[i].y < state->cur_preset.params.tree_min_height || state->trees_pos[i].y > state->cur_preset.params.tree_max_height) {
 			continue;
 		}
 
-		const u32 scale = 1.f * state->cur_preset.params.scale;
+		const u32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
 
 		mat4_identity(model);
-		mat4_translate(model, state->trees[i].x, state->trees[i].y + (scale / 2), state->trees[i].z);
-		mat4_scale(model, 1.f, scale, 1.f);
+		mat4_translate(model, state->trees_pos[i].x, state->trees_pos[i].y, state->trees_pos[i].z);
+		mat4_rotate_x(model, state->trees_rotation[i].x);
+		mat4_rotate_y(model, state->trees_rotation[i].y);
+		mat4_rotate_z(model, state->trees_rotation[i].z);
+		mat4_scale(model, scale, scale, scale);
 		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
-		glDrawElements(GL_TRIANGLES, 4 * state->tree->polygons.size(), GL_UNSIGNED_INT, 0);
-	}*/
+		glDrawElements(GL_TRIANGLES, 3 * state->trunk->polygons.size(), GL_UNSIGNED_INT, 0);
+	}
+
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.leaves_colour);
+
+	// Render leaves
+	glBindBuffer(GL_ARRAY_BUFFER, state->leaves->vbos[0]);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->leaves->vbos[1]);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
+
+	for (u32 i = 0; i < state->cur_preset.params.tree_count; i++) {
+		if (state->trees_pos[i].y < state->cur_preset.params.tree_min_height || state->trees_pos[i].y > state->cur_preset.params.tree_max_height) {
+			continue;
+		}
+
+		const u32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
+
+		mat4_identity(model);
+		mat4_translate(model, state->trees_pos[i].x, state->trees_pos[i].y, state->trees_pos[i].z);
+		mat4_rotate_x(model, state->trees_rotation[i].x);
+		mat4_rotate_y(model, state->trees_rotation[i].y);
+		mat4_rotate_z(model, state->trees_rotation[i].z);
+		mat4_scale(model, scale, scale, scale);
+		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
+		glDrawElements(GL_TRIANGLES, 3 * state->leaves ->polygons.size(), GL_UNSIGNED_INT, 0);
+	}
 
 	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.rock_colour);
 
@@ -462,12 +491,14 @@ static void app_render_lights_and_features(app_state *state)
 			continue;
 		}
 
+		const u32 scale = state->cur_preset.params.rock_size * state->cur_preset.params.scale;
+
 		mat4_identity(model);
 		mat4_translate(model, state->rocks_pos[i].x, state->rocks_pos[i].y, state->rocks_pos[i].z);
 		mat4_rotate_x(model, state->rocks_rotation[i].x);
 		mat4_rotate_y(model, state->rocks_rotation[i].y);
 		mat4_rotate_z(model, state->rocks_rotation[i].z);
-		mat4_scale(model, state->cur_preset.params.rock_size, state->cur_preset.params.rock_size, state->cur_preset.params.rock_size);
+		mat4_scale(model, scale, scale, scale);
 
 		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
 		glDrawElements(GL_TRIANGLES, 3 * state->rock->polygons.size(), GL_UNSIGNED_INT, 0);
@@ -498,9 +529,15 @@ static void generate_trees(app_state *state)
 			x = chunk->x * state->cur_preset.params.chunk_tile_length + v->pos.x;
 			y = v->pos.y;
 			z = chunk->y * state->cur_preset.params.chunk_tile_length + v->pos.z;
-			state->trees[i].x = x;
-			state->trees[i].y = y;
-			state->trees[i].z = z;
+			state->trees_pos[i].x = x;
+			state->trees_pos[i].y = y;
+			state->trees_pos[i].z = z;
+
+			std::uniform_real_distribution<> rotation_distr(0, 360);
+
+			//state->trees_rotation[i].x = (acos(v3_dot(v->nor, { 1, 0, 0 })) * 180.f / M_PI);
+			state->trees_rotation[i].y = rotation_distr(state->rng);
+			//state->trees_rotation[i].z = (acos(v3_dot(v->nor, { 0, 0, 1 })) * 180.f / M_PI);
 		}
 	}
 }
@@ -1019,7 +1056,7 @@ static void app_render(app_state *state)
 		app_render_chunk(state, reflection_clip, state->chunks[i]);
 	}
 
-	app_render_lights_and_features(state);
+	app_render_features(state);
 
 	// Restore camera.
 	state->cur_cam = camera_backup;
@@ -1040,7 +1077,7 @@ static void app_render(app_state *state)
 		app_render_chunk(state, refraction_clip, state->chunks[i]);
 	}
 
-	app_render_lights_and_features(state);
+	app_render_features(state);
 
 	// Render to frame buffer
 	glViewport(0, 0, 1024, 1024);
@@ -1081,7 +1118,7 @@ static void app_render(app_state *state)
 		app_render_chunk(state, no_clip, state->chunks[i]);
 	}
 
-	app_render_lights_and_features(state);
+	app_render_features(state);
 
 	glDisable(GL_CLIP_DISTANCE0);
 
@@ -1462,13 +1499,21 @@ static void app_render(app_state *state)
 		if (ImGui::TreeNode("Features")) {
 			if (ImGui::TreeNode("Trees")) {
 				ImGui::SliderInt("tree count", (int *)&state->cur_preset.params.tree_count, 0, state->cur_preset.params.max_trees, "%d", ImGuiSliderFlags_None);
+				ImGui::SliderFloat("tree size", &state->cur_preset.params.tree_size, 0.1f, 5.f, "%.2f", ImGuiSliderFlags_None);
 				ImGui::SliderInt("tree min height", (int *)&state->cur_preset.params.tree_min_height, 0, 200, "%d", ImGuiSliderFlags_None);
 				ImGui::SliderInt("tree max height", (int *)&state->cur_preset.params.tree_max_height, 0, 200, "%d", ImGuiSliderFlags_None);
 
-				if (ImGui::TreeNode("Colour")) {
-					ImGui::SliderFloat("red", &state->cur_preset.params.tree_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("green", &state->cur_preset.params.tree_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
-					ImGui::SliderFloat("blue", &state->cur_preset.params.tree_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+				if (ImGui::TreeNode("Tree Trunks")) {
+					ImGui::SliderFloat("red", &state->cur_preset.params.trunk_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("green", &state->cur_preset.params.trunk_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("blue", &state->cur_preset.params.trunk_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::TreePop();
+				}
+
+				if (ImGui::TreeNode("Tree Leaves")) {
+					ImGui::SliderFloat("red", &state->cur_preset.params.leaves_colour.E[0], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("green", &state->cur_preset.params.leaves_colour.E[1], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
+					ImGui::SliderFloat("blue", &state->cur_preset.params.leaves_colour.E[2], 0.f, 1.f, "%.2f", ImGuiSliderFlags_None);
 					ImGui::TreePop();
 				}
 
@@ -1728,9 +1773,11 @@ app_state *app_init(u32 w, u32 h)
 	state->presets[0]->params.slope_colour = { 0.45f, 0.5f, 0.35f };
 	state->presets[0]->params.water_colour = { .31f, .31f, 0.35f };
 	state->presets[0]->params.skybox_colour = { 0.65f, 0.65f, 1.f };
-	state->presets[0]->params.tree_colour = { 0.65f, 0.65f, 0.3f };
+	state->presets[0]->params.trunk_colour = { 0.65f, 0.65f, 0.3f };
+	state->presets[0]->params.leaves_colour = { 0.2f, 0.4f, 0.2f };
 	state->presets[0]->params.rock_colour = { 0.3f, 0.3f, 0.3f };
 	state->presets[0]->params.tree_count = 0;
+	state->presets[0]->params.tree_size = 1.f;
 	state->presets[0]->params.tree_min_height = state->presets[0]->params.sand_height;
 	state->presets[0]->params.tree_max_height = state->presets[0]->params.snow_height;
 	state->presets[0]->params.max_trees = 10000;
@@ -1751,7 +1798,8 @@ app_state *app_init(u32 w, u32 h)
 	init_terrain_texture_maps(state);
 	init_depth_map(state);
 
-	state->trees = (V3 *)malloc(state->cur_preset.params.max_trees * sizeof V3);
+	state->trees_pos = (V3 *)malloc(state->cur_preset.params.max_trees * sizeof V3);
+	state->trees_rotation = (V3 *)malloc(state->cur_preset.params.max_trees * sizeof V3);
 	state->rocks_pos = (V3 *)malloc(state->cur_preset.params.max_rocks * sizeof V3);
 	state->rocks_rotation = (V3 *)malloc(state->cur_preset.params.max_rocks * sizeof V3);
 
@@ -1778,6 +1826,12 @@ app_state *app_init(u32 w, u32 h)
 
 	state->rock = load_object("Rock1.obj");
 	create_vbos(state->rock);
+
+	state->trunk = load_object("trunk.obj");
+	create_vbos(state->trunk);
+
+	state->leaves = load_object("leaves.obj");
+	create_vbos(state->leaves);
 
 	state->terrain_settings_open = true;
 	state->general_settings_open = true;

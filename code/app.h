@@ -71,6 +71,7 @@ struct world_generation_parameters {
     real32 specular_strength;
     real32 gamma_correction;
     real32 rock_size;
+    real32 tree_size;
     V3 water_pos;
     V3 ground_colour;
     V3 sand_colour;
@@ -81,7 +82,8 @@ struct world_generation_parameters {
     V3 light_colour;
     V3 skybox_colour;
     V3 rock_colour;
-    V3 tree_colour;
+    V3 trunk_colour;
+    V3 leaves_colour;
     s32 max_octaves;
     u32 chunk_tile_length;
     u32 world_width;
@@ -89,7 +91,6 @@ struct world_generation_parameters {
     u32 tree_count;
     u32 tree_min_height;
     u32 tree_max_height;
-    u32 tree_size;
     u32 max_trees;
     u32 rock_count;
     u32 rock_min_height;
@@ -240,6 +241,8 @@ struct app_state {
     Camera cur_cam;
 
     Object *rock;
+    Object *trunk;
+    Object *leaves;
 
     WaterFrameBuffers water_frame_buffers;
 
@@ -249,7 +252,7 @@ struct app_state {
     LODSettings lod_settings;
     std::vector<Chunk*> chunks;
     Chunk* current_chunk;
-    V3 *trees;
+    V3 *trees_pos, *trees_rotation;
     V3 *rocks_pos, *rocks_rotation;
     u32 chunk_count;
     u32 chunk_vertices_length;
