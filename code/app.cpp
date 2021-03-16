@@ -964,6 +964,7 @@ static void load_presets(app_state *state)
 			if (file.good()) {
 				preset_file p_file = {};
 				p_file.name = p.path().stem().string();
+				p_file.index = state->presets.size();
 				file.read((char *)&p_file.params, sizeof(world_generation_parameters));
 
 				state->presets.push_back(new preset_file(p_file));
@@ -1142,8 +1143,6 @@ static void app_render(app_state *state)
 	bool reinit_chunks = false;
 	bool update_camera = false;
 
-	u32 new_chunk_length = state->cur_preset.params.chunk_tile_length;
-
 	ImGui::PushItemWidth(ui_item_width);
 
 	if (ImGui::TreeNode("Debug")) {
@@ -1230,6 +1229,8 @@ static void app_render(app_state *state)
 		if (state->cur_preset.name != "default") {
 			if (ImGui::Button("Save")) {
 				save_custom_preset_to_file(&state->cur_preset);
+				
+				state->presets.at(state->cur_preset.index)->params = state->cur_preset.params;
 			}
 
 			ImGui::SameLine();
@@ -1258,6 +1259,7 @@ static void app_render(app_state *state)
 				 if (!show_empty_error && !show_default_error) {
 					preset_file p_file = {};
 					p_file.name = state->new_preset_name;
+					p_file.index = state->presets.size();
 					p_file.params = state->cur_preset.params;
 
 					state->presets.push_back(new preset_file(p_file));
@@ -1292,8 +1294,11 @@ static void app_render(app_state *state)
 		for (auto &p : state->presets) {
 			std::string s(p->name);
 			if (ImGui::Button(s.c_str())) {
+				reinit_chunks = 
+						state->cur_preset.params.world_width != p->params.world_width 
+					||	state->cur_preset.params.chunk_tile_length != p->params.chunk_tile_length;
+				regenerate_chunks = true;
 				state->cur_preset = *p;
-				regenerate_chunks |= true;
 			}
 		}
 
@@ -1318,29 +1323,24 @@ static void app_render(app_state *state)
 		reseed |= ImGui::InputInt("Seed", (int *)&state->cur_preset.params.seed); ImGui::SameLine();
 		regenerate_chunks |= ImGui::Button("Regenerate");
 
-		static int world_width_ui = state->cur_preset.params.world_width;
-		reinit_chunks |= ImGui::InputInt("World Width", (int *)&world_width_ui);
-
-		if (world_width_ui != state->cur_preset.params.world_width) {
-			state->cur_preset.params.world_width = world_width_ui;
-		}
+		reinit_chunks |= ImGui::InputInt("World Width", (int *)&state->cur_preset.params.world_width);
 
 		ImGui::Text("Chunk size:"); ImGui::SameLine();
 
 		if (ImGui::Button("64")) {
-			new_chunk_length = 64;
+			state->cur_preset.params.chunk_tile_length = 64;
 			reinit_chunks |= true;
 		} ImGui::SameLine();
 		if (ImGui::Button("128")) {
-			new_chunk_length = 128;
+			state->cur_preset.params.chunk_tile_length = 128;
 			reinit_chunks |= true;
 		} ImGui::SameLine();
 		if (ImGui::Button("256")) {
-			new_chunk_length = 256;
+			state->cur_preset.params.chunk_tile_length = 256;
 			reinit_chunks |= true;
 		} ImGui::SameLine();
 		if (ImGui::Button("512")) {
-			new_chunk_length = 512;
+			state->cur_preset.params.chunk_tile_length = 512;
 			reinit_chunks |= true;
 		}
 		
@@ -1514,7 +1514,7 @@ static void app_render(app_state *state)
 				state->cur_preset.params.world_width = 1;
 			}
 
-			init_terrain(state, new_chunk_length, state->cur_preset.params.world_width);
+			init_terrain(state, state->cur_preset.params.chunk_tile_length, state->cur_preset.params.world_width);
 		}
 
 		generate_world(state);
@@ -1698,6 +1698,7 @@ app_state *app_init(u32 w, u32 h)
 	state->presets.push_back(new preset_file);
 
 	state->presets[0]->name = "default";
+	state->presets[0]->index = 0;
 	state->presets[0]->params.seed = 10;
 	state->presets[0]->params.chunk_tile_length = 64;
 	state->presets[0]->params.world_width = 3;

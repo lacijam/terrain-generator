@@ -82,6 +82,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	glrc = win32_create_gl_context(hwnd);
 
 	ShowWindow(hwnd, nShowCmd);
+	ShowWindow(hwnd, SW_MAXIMIZE);
 
 	RECT rc;
 
@@ -91,7 +92,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	int yPos = (GetSystemMetrics(SM_CYSCREEN) - rc.bottom) / 2;
 
 	SetWindowPos(hwnd, 0, xPos, yPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-
+	
 	UpdateWindow(hwnd);
 
 	CreateDirectory("./export", NULL);

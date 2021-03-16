@@ -99,6 +99,7 @@ struct world_generation_parameters {
 
 struct preset_file {
     std::string name;
+    u32 index;
     world_generation_parameters params;
 };
 
