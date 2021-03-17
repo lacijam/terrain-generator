@@ -905,7 +905,9 @@ static void export_terrain(app_state *state)
 					V4 d = {};
 					real32 m[16];
 					mat4_identity(m);
-					mat4_scale(m, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size);
+
+					real32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
+					mat4_scale(m, scale, scale, scale);
 					mat4_rotate_y(m, state->trees_rotation[i].y);
 					
 					for (u32 i = 0; i < 4; i++) {
@@ -972,7 +974,9 @@ static void export_terrain(app_state *state)
 					V4 d = {};
 					real32 m[16];
 					mat4_identity(m);
-					mat4_scale(m, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size);
+
+					real32 scale = state->cur_preset.params.tree_size * state->cur_preset.params.scale;
+					mat4_scale(m, scale, scale, scale);
 					mat4_rotate_y(m, state->trees_rotation[i].y);
 
 					for (u32 i = 0; i < 4; i++) {
@@ -1041,7 +1045,9 @@ static void export_terrain(app_state *state)
 					V4 d = {};
 					real32 m[16];
 					mat4_identity(m);
-					mat4_scale(m, state->cur_preset.params.rock_size, state->cur_preset.params.rock_size, state->cur_preset.params.rock_size);
+
+					real32 scale = state->cur_preset.params.rock_size * state->cur_preset.params.scale;
+					mat4_scale(m, scale, scale, scale);
 					mat4_rotate_z(m, state->rocks_rotation[i].z);
 					mat4_rotate_y(m, state->rocks_rotation[i].y);
 					mat4_rotate_x(m, state->rocks_rotation[i].x);
