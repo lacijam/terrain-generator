@@ -3,5 +3,5 @@ build/
 .vscode/
 x64/
 x86/
-*.user/
+*.user
 imgui.ini
