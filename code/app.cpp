@@ -667,10 +667,10 @@ static std::string face_string_without_normals(u32 f0, u32 f1, u32 f2)
 	return ss.str();
 }
 
-static void export_terrain_chunk(app_state *state, Chunk *chunk)
+static void export_terrain_chunk(app_state *state, std::string path, Chunk *chunk)
 {
-	std::string filename = "terrain_chunk_" + std::to_string(chunk->y) + "_" + std::to_string(chunk->x) + ".obj";
-	std::ofstream object_file("export/" + filename, std::ios::out);
+	std::string filename = "chunk_" + std::to_string(chunk->y) + "_" + std::to_string(chunk->x) + ".obj";
+	std::ofstream object_file(path + filename, std::ios::out);
 
 	if (object_file.good()) {
 		object_file << "mtllib terrain.mtl" << std::endl;
@@ -754,9 +754,9 @@ static void export_terrain_chunk(app_state *state, Chunk *chunk)
 	}
 }
 
-static void export_terrain_one_obj(app_state *state)
+static void export_terrain_one_obj(app_state *state, std::string path)
 {
-	std::ofstream object_file("export/terrain.obj", std::ios::out);
+	std::ofstream object_file(path + "terrain.obj", std::ios::out);
 
 	if (object_file.good()) {
 		object_file << "mtllib terrain.mtl" << std::endl;
@@ -871,10 +871,20 @@ static void export_terrain_one_obj(app_state *state)
 
 static void export_terrain(app_state *state)
 {
+	auto t = std::time(nullptr);
+	auto tm = *std::localtime(&t);
+	std::ostringstream oss;
+	oss << std::put_time(&tm, "%d-%m-%y-%H-%M-%S");
+
+	const std::string path = "./export/" + state->cur_preset.name + "-" + oss.str() + "/";
+
+	std::filesystem::create_directory("./export"); // If it somehow gets deleted.
+	std::filesystem::create_directory(path);
+
 	if (state->export_settings.seperate_chunks) {
 		for (u32 j = 0; j < state->cur_preset.params.world_width; j++) {
 			for (u32 i = 0; i < state->cur_preset.params.world_width; i++) {
-				state->generation_threads.push_back(std::thread(export_terrain_chunk, state, state->chunks[j * state->cur_preset.params.world_width + i]));
+				state->generation_threads.push_back(std::thread(export_terrain_chunk, state, path, state->chunks[j * state->cur_preset.params.world_width + i]));
 			}
 		}
 
@@ -885,12 +895,12 @@ static void export_terrain(app_state *state)
 		state->generation_threads.clear();
 	}
 	else {
-		export_terrain_one_obj(state);
+		export_terrain_one_obj(state, path);
 	}
 
 	// Export trees & rocks.
 	if (state->export_settings.trees) {
-		std::ofstream trunks_file("export/tree_trunks.obj", std::ios::out);
+		std::ofstream trunks_file(path + "tree_trunks.obj", std::ios::out);
 		
 		if (trunks_file.good()) {
 			trunks_file << "mtllib tree_trunks.mtl" << std::endl;
@@ -939,7 +949,7 @@ static void export_terrain(app_state *state)
 				vertex_offset += state->trunk->vertices.size();
 			}
 
-			std::ofstream trunk_material_file("export/tree_trunks.mtl", std::ios::out);
+			std::ofstream trunk_material_file(path + "tree_trunks.mtl", std::ios::out);
 
 			if (trunk_material_file.good()) {
 				std::string colour_string = std::to_string(state->cur_preset.params.trunk_colour.x) + " "
@@ -959,7 +969,7 @@ static void export_terrain(app_state *state)
 
 		trunks_file.close();
 
-		std::ofstream leaves_file("export/tree_leaves.obj", std::ios::out);
+		std::ofstream leaves_file(path + "tree_leaves.obj", std::ios::out);
 
 		if (leaves_file.good()) {
 			leaves_file << "mtllib tree_leaves.mtl" << std::endl;
@@ -1008,7 +1018,7 @@ static void export_terrain(app_state *state)
 				vertex_offset += state->leaves->vertices.size();
 			}
 
-			std::ofstream leaves_material_file("export/tree_leaves.mtl", std::ios::out);
+			std::ofstream leaves_material_file(path + "tree_leaves.mtl", std::ios::out);
 
 			if (leaves_material_file.good()) {
 				std::string colour_string = std::to_string(state->cur_preset.params.leaves_colour.x) + " "
@@ -1030,7 +1040,7 @@ static void export_terrain(app_state *state)
 	}
 
 	if (state->export_settings.rocks) {
-		std::ofstream rocks_file("export/rocks.obj", std::ios::out);
+		std::ofstream rocks_file(path + "rocks.obj", std::ios::out);
 
 		if (rocks_file.good()) {
 			rocks_file << "mtllib rocks.mtl" << std::endl;
@@ -1081,7 +1091,7 @@ static void export_terrain(app_state *state)
 				vertex_offset += state->rock->vertices.size();
 			}
 
-			std::ofstream rock_material_file("export/rocks.mtl", std::ios::out);
+			std::ofstream rock_material_file(path + "rocks.mtl", std::ios::out);
 
 			if (rock_material_file.good()) {
 				std::string colour_string = std::to_string(state->cur_preset.params.rock_colour.x) + " "
@@ -1103,7 +1113,7 @@ static void export_terrain(app_state *state)
 	}
 
 	// Material file.
-	std::ofstream material_file("export/terrain.mtl", std::ios::out);
+	std::ofstream material_file(path + "terrain.mtl", std::ios::out);
 
 	if (material_file.good()) {
 		material_file << "newmtl textured" << std::endl;
@@ -1123,7 +1133,7 @@ static void export_terrain(app_state *state)
 
 	// Texture map.
 	if (state->export_settings.texture_map) {
-		std::ofstream tga_file("export/diffuse.tga", std::ios::binary);
+		std::ofstream tga_file(path + "diffuse.tga", std::ios::binary);
 		if (!tga_file) return;
 
 		char header[18] = { 0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
@@ -1258,7 +1268,7 @@ static void export_terrain(app_state *state)
 
 static void load_presets(app_state *state)
 {
-	for (auto &p : std::filesystem::directory_iterator(".")) {
+	for (auto &p : std::filesystem::directory_iterator("./presets/")) {
 		if (p.path().extension() == ".world") {
 			std::ifstream file(p.path(), std::ios::binary);
 
@@ -1278,7 +1288,7 @@ static void load_presets(app_state *state)
 
 static void save_custom_preset_to_file(preset_file *p_file)
 {
-	std::ofstream file(p_file->name + ".world", std::ios::binary);
+	std::ofstream file("./presets/" + p_file->name + ".world", std::ios::binary);
 
 	if (file.good()) {
 		file.write((char *)&p_file->params, sizeof(world_generation_parameters));
@@ -2128,19 +2138,19 @@ app_state *app_init(u32 w, u32 h)
 	camera_frustrum(&state->cur_cam, state->window_info.w, state->window_info.h);
 	camera_ortho(&state->cur_cam, state->window_info.w, state->window_info.h);
 
-	state->light_pos = { -5000.f, 5000.f, ((real32)state->cur_preset.params.chunk_tile_length / 2) * state->cur_preset.params.world_width * 1.f};
+	state->light_pos = { -2000.f, 3000.f, 3000.f };
 
 	state->export_settings = {};
 
 	state->wireframe = false;
 
-	state->rock = load_object("Rock1.obj");
+	state->rock = load_object("./data/rock.obj");
 	create_vbos(state->rock);
 
-	state->trunk = load_object("trunk.obj");
+	state->trunk = load_object("./data/trunk.obj");
 	create_vbos(state->trunk);
 
-	state->leaves = load_object("leaves.obj");
+	state->leaves = load_object("./data/leaves.obj");
 	create_vbos(state->leaves);
 
 	state->terrain_settings_open = true;

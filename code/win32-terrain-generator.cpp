@@ -84,12 +84,9 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	glrc = win32_create_gl_context(hwnd);
 
 	ShowWindow(hwnd, nShowCmd);
-	ShowWindow(hwnd, SW_MAXIMIZE);
 
 	RECT rc;
-
 	GetWindowRect(hwnd, &rc);
-
 	int xPos = (GetSystemMetrics(SM_CXSCREEN) - rc.right) / 2;
 	int yPos = (GetSystemMetrics(SM_CYSCREEN) - rc.bottom) / 2;
 
