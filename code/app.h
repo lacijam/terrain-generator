@@ -132,6 +132,8 @@ struct SimpleShader {
     u32 projection;
     u32 view;
     u32 model;
+    u32 light_space_matrix;
+    u32 shadow_map;
     u32 ambient_strength;
     u32 diffuse_strength;
     u32 gamma_correction;
@@ -210,6 +212,8 @@ struct ExportSettings {
     bool32 bake_shadows;
     bool32 lods;
     bool32 seperate_chunks;
+    bool32 trees;
+    bool32 rocks;
 };
 
 struct LODSettings {

@@ -78,8 +78,25 @@ namespace Shaders {
 
         float closest_depth = texture(shadow_map, proj_coords.xy).r;
         float current_depth = proj_coords.z;
-        float bias = max(0.05f * (1.f - dot(v_nor, light_dir)), 0.005f);
-        return current_depth - bias > closest_depth ? 1.f : 0.f;
+        float bias = max(0.001f * (1.f - dot(v_nor, light_dir)), 0.001f);
+        float shadow = 0.0;
+        
+        vec2 texelSize = 1.0 / textureSize(shadow_map, 0);
+        
+        for(int x = -1; x <= 1; ++x)
+        {
+            for(int y = -1; y <= 1; ++y)
+            {
+                float pcfDepth = texture(shadow_map, proj_coords.xy + vec2(x, y) * texelSize).r; 
+                shadow += current_depth - bias > pcfDepth ? 1.0 : 0.0;        
+            }    
+        }
+
+        if (proj_coords.z > 1.0) {
+            shadow = 0.0;
+        }
+
+        return shadow /= 9.0;
     }
 
     void main()
@@ -121,10 +138,12 @@ namespace Shaders {
 
     out vec3 v_pos;
     out vec3 v_nor;
+    out vec4 frag_pos_light_space;
 
     uniform mat4 projection;
     uniform mat4 view;
     uniform mat4 model;
+    uniform mat4 light_space_matrix;
     
     void main()
     {
@@ -133,6 +152,7 @@ namespace Shaders {
 
         v_pos = vec3(world_position);
         v_nor = vec3(world_normal);
+        frag_pos_light_space = light_space_matrix * world_position;
 
         gl_Position = projection * view * world_position;
     }
@@ -143,6 +163,7 @@ namespace Shaders {
 
     in vec3 v_pos;
     in vec3 v_nor;
+    in vec4 frag_pos_light_space;
 
     out vec4 frag;
 
@@ -154,6 +175,44 @@ namespace Shaders {
     uniform vec3 light_colour;
     uniform vec3 object_colour;
 
+    uniform sampler2D shadow_map;
+
+    float bias(float x, float b) {
+        b = -log2(1.0 - b);
+        return 1.0 - pow(1.0 - pow(x, 1./b), b);
+    }
+
+    float shadow_calculation(vec4 f_pos_light_space, vec3 light_dir)
+    {
+        vec3 proj_coords = frag_pos_light_space.xyz / frag_pos_light_space.w;
+        proj_coords = proj_coords * 0.5f + 0.5f;
+
+        if (proj_coords.z > 1.f)
+            return 0.f;
+
+        float closest_depth = texture(shadow_map, proj_coords.xy).r;
+        float current_depth = proj_coords.z;
+        float bias = max(0.00001f * (1.f - dot(v_nor, light_dir)), 0.00001f);
+        float shadow = 0.0;
+        
+        vec2 texelSize = 1.0 / textureSize(shadow_map, 0);
+        
+        for(int x = -1; x <= 1; ++x)
+        {
+            for(int y = -1; y <= 1; ++y)
+            {
+                float pcfDepth = texture(shadow_map, proj_coords.xy + vec2(x, y) * texelSize).r; 
+                shadow += current_depth - bias > pcfDepth ? 1.0 : 0.0;        
+            }    
+        }
+
+        if (proj_coords.z > 1.0) {
+            shadow = 0.0;
+        }
+        
+        return shadow /= 9.0;
+    }
+
     void main()
     {
         vec3 ambient = ambient_strength * light_colour;
@@ -161,8 +220,9 @@ namespace Shaders {
         vec3 light_dir = normalize(light_pos - v_pos);
         float diff = max(dot(v_nor, light_dir), 0.0f);
         vec3 diffuse = diff * light_colour * diffuse_strength;
-
-        vec3 lighting = (ambient + diffuse);        
+        
+        float shadow = shadow_calculation(frag_pos_light_space, light_dir);
+        vec3 lighting = (ambient + (1.f - shadow) * diffuse);        
         vec3 colour = object_colour * lighting;
         colour = pow(colour, vec3(1.f / gamma_correction));
 

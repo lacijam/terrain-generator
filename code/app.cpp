@@ -252,7 +252,7 @@ static void init_depth_map(app_state *state)
 
 	glGenTextures(1, &state->depth_map);
 	glBindTexture(GL_TEXTURE_2D, state->depth_map);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 1024, 1024, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 4096, 4096, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
@@ -326,8 +326,13 @@ static void app_on_destroy(app_state *state)
 	glDeleteProgram(state->water_shader.program);
 }
 
-static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
+static void terrain_shader_use(app_state *state, real32 *clip)
 {
+	glUseProgram(state->terrain_shader.program);
+
+	glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
+	glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, state->cur_cam.view);
+
 	glUniform4fv(state->terrain_shader.plane, 1, clip);
 
 	glUniform1f(state->terrain_shader.ambient_strength, state->cur_preset.params.ambient_strength);
@@ -350,10 +355,10 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 	glUniform3fv(state->terrain_shader.view_position, 1, (GLfloat *)&state->cur_cam.pos);
 
 	glUniform1i(state->terrain_shader.shadow_map, 0);
+}
 
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, state->depth_map);
-
+static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk, u32 model_handle)
+{
 	glBindVertexArray(state->triangle_vao);
 
 	u32 chunk_index = chunk->y * state->cur_preset.params.world_width + chunk->x;
@@ -367,7 +372,7 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 	mat4_identity(model);
 	mat4_translate(model, chunk->x * state->cur_preset.params.chunk_tile_length , 0, chunk->y * state->cur_preset.params.chunk_tile_length);
 
-	glUniformMatrix4fv(state->terrain_shader.model, 1, GL_FALSE, model);
+	glUniformMatrix4fv(model_handle, 1, GL_FALSE, model);
 
 	// LOD 0 is the highest quality.
 	u32 chunk_lod_detail = 0;
@@ -394,22 +399,9 @@ static void app_render_chunk(app_state *state, real32 *clip, Chunk *chunk)
 	// Find the offset of the LOD data we want to use be looping through every LOD level
 	// before the one we want and calculating the sum of the total size.
 	glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void *)(chunk_offset_in_bytes));
-
-	if (state->wireframe) {
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-		V3 grid_colour = { 1.f, 1.f, 1.f };
-		glUniform3fv(state->terrain_shader.light_colour, 1, (GLfloat *)&grid_colour);
-		glUniform3fv(state->terrain_shader.slope_colour, 1, (GLfloat *)&grid_colour);
-		glUniform3fv(state->terrain_shader.ground_colour, 1, (GLfloat *)&grid_colour);
-		glUniform3fv(state->terrain_shader.sand_colour, 1, (GLfloat *)&grid_colour);
-		glUniform3fv(state->terrain_shader.stone_colour, 1, (GLfloat *)&grid_colour);
-		glUniform3fv(state->terrain_shader.snow_colour, 1, (GLfloat *)&grid_colour);
-		glDrawElements(GL_TRIANGLES, lod_indices_area, GL_UNSIGNED_INT, (void *)(chunk_offset_in_bytes));
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	}
 }
 
-static void app_render_features(app_state *state)
+static void simple_shader_use(app_state *state)
 {
 	glUseProgram(state->simple_shader.program);
 
@@ -423,12 +415,14 @@ static void app_render_features(app_state *state)
 	glUniformMatrix4fv(state->simple_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
 	glUniformMatrix4fv(state->simple_shader.view, 1, GL_FALSE, state->cur_cam.view);
 
+	glUniform1i(state->simple_shader.shadow_map, 0);
+}
+
+static void app_render_trunks(app_state *state, u32 model_handle)
+{
 	real32 model[16];
 
 	glBindVertexArray(state->triangle_vao);
-
-	// Render trunks
-	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.trunk_colour);
 
 	glBindBuffer(GL_ARRAY_BUFFER, state->trunk->vbos[0]);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->trunk->vbos[1]);
@@ -448,13 +442,15 @@ static void app_render_features(app_state *state)
 		mat4_rotate_y(model, state->trees_rotation[i].y);
 		mat4_rotate_z(model, state->trees_rotation[i].z);
 		mat4_scale(model, scale, scale, scale);
-		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
+		glUniformMatrix4fv(model_handle, 1, GL_FALSE, model);
 		glDrawElements(GL_TRIANGLES, 3 * state->trunk->polygons.size(), GL_UNSIGNED_INT, 0);
 	}
+}
 
-	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.leaves_colour);
+static void app_render_leaves(app_state *state, u32 model_handle)
+{
+	real32 model[16];
 
-	// Render leaves
 	glDisable(GL_CULL_FACE);
 
 	glBindBuffer(GL_ARRAY_BUFFER, state->leaves->vbos[0]);
@@ -475,11 +471,14 @@ static void app_render_features(app_state *state)
 		mat4_rotate_y(model, state->trees_rotation[i].y);
 		mat4_rotate_z(model, state->trees_rotation[i].z);
 		mat4_scale(model, scale, scale, scale);
-		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
-		glDrawElements(GL_TRIANGLES, 3 * state->leaves ->polygons.size(), GL_UNSIGNED_INT, 0);
+		glUniformMatrix4fv(model_handle, 1, GL_FALSE, model);
+		glDrawElements(GL_TRIANGLES, 3 * state->leaves->polygons.size(), GL_UNSIGNED_INT, 0);
 	}
+}
 
-	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.rock_colour);
+static void app_render_rocks(app_state *state, u32 model_handle)
+{
+	real32 model[16];
 
 	glBindVertexArray(state->triangle_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, state->rock->vbos[0]);
@@ -504,7 +503,7 @@ static void app_render_features(app_state *state)
 		mat4_rotate_z(model, state->rocks_rotation[i].z);
 		mat4_scale(model, scale, scale, scale);
 
-		glUniformMatrix4fv(state->simple_shader.model, 1, GL_FALSE, model);
+		glUniformMatrix4fv(model_handle, 1, GL_FALSE, model);
 		glDrawElements(GL_TRIANGLES, 3 * state->rock->polygons.size(), GL_UNSIGNED_INT, 0);
 	}
 	// End of features
@@ -889,6 +888,215 @@ static void export_terrain(app_state *state)
 		export_terrain_one_obj(state);
 	}
 
+	// Export trees & rocks.
+	if (state->export_settings.trees) {
+		std::ofstream trunks_file("export/tree_trunks.obj", std::ios::out);
+		
+		if (trunks_file.good()) {
+			trunks_file << "mtllib tree_trunks.mtl" << std::endl;
+			trunks_file << "usemtl colour" << std::endl;
+			
+			u32 i = 0;
+			u32 vertex_offset = 0;
+			for (auto &p : state->trees_pos) {
+				trunks_file << "o Tree_" << i++ << std::endl;
+				for (auto &v : state->trunk->vertices) {
+					V4 v4 = { v->pos.x, v->pos.y, v->pos.z, 1.f };
+					V4 d = {};
+					real32 m[16];
+					mat4_identity(m);
+					mat4_scale(m, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size);
+					mat4_rotate_y(m, state->trees_rotation[i].y);
+					
+					for (u32 i = 0; i < 4; i++) {
+						for (u32 j = 0; j < 4; j++) {
+							d.E[i] += (m[i * 4 + j] * v4.E[j]);
+						}
+					}
+
+					const real32 x = d.x + p.x;
+					const real32 y = d.y + p.y;
+					const real32 z = d.z + p.z;
+					trunks_file << "v " << x << " " << " " << y << " " << z << std::endl;
+				}
+
+				for (auto &v : state->trunk->vertices) {
+					const real32 x = v->nor.x;
+					const real32 y = v->nor.y;
+					const real32 z = v->nor.z;
+					trunks_file << "vn " << x << " " << " " << y << " " << z << std::endl;
+				}
+
+				for (auto f : state->trunk->polygons) {
+					const u32 f0 = f->indices[0] + 1 + vertex_offset;
+					const u32 f1 = f->indices[1] + 1 + vertex_offset;
+					const u32 f2 = f->indices[2] + 1 + vertex_offset;
+					trunks_file << face_string_with_normals_and_uv(f0, f1, f2);
+				}
+
+				vertex_offset += state->trunk->vertices.size();
+			}
+
+			std::ofstream trunk_material_file("export/tree_trunks.mtl", std::ios::out);
+
+			if (trunk_material_file.good()) {
+				std::string colour_string = std::to_string(state->cur_preset.params.trunk_colour.x) + " "
+					+ std::to_string(state->cur_preset.params.trunk_colour.y) + " "
+					+ std::to_string(state->cur_preset.params.trunk_colour.z);
+
+				trunk_material_file << "newmtl colour" << std::endl;
+				trunk_material_file << "Ka " << colour_string << std::endl;
+				trunk_material_file << "Kd " << colour_string << std::endl;
+				trunk_material_file << "Ks 0.000 0.000 0.000" << std::endl;
+				trunk_material_file << "d 1.000" << std::endl;
+				trunk_material_file << "illum 2" << std::endl;
+			}
+
+			trunk_material_file.close();
+		}
+
+		trunks_file.close();
+
+		std::ofstream leaves_file("export/tree_leaves.obj", std::ios::out);
+
+		if (leaves_file.good()) {
+			leaves_file << "mtllib tree_leaves.mtl" << std::endl;
+			leaves_file << "usemtl colour" << std::endl;
+
+			u32 i = 0;
+			u32 vertex_offset = 0;
+			for (auto &p : state->trees_pos) {
+				leaves_file << "o Leaves_" << i++ << std::endl;
+				for (auto &v : state->leaves->vertices) {
+					V4 v4 = { v->pos.x, v->pos.y, v->pos.z, 1.f };
+					V4 d = {};
+					real32 m[16];
+					mat4_identity(m);
+					mat4_scale(m, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size, state->cur_preset.params.tree_size);
+					mat4_rotate_y(m, state->trees_rotation[i].y);
+
+					for (u32 i = 0; i < 4; i++) {
+						for (u32 j = 0; j < 4; j++) {
+							d.E[i] += (m[i * 4 + j] * v4.E[j]);
+						}
+					}
+
+					const real32 x = d.x + p.x;
+					const real32 y = d.y + p.y;
+					const real32 z = d.z + p.z;
+					leaves_file << "v " << x << " " << " " << y << " " << z << std::endl;
+				}
+
+				for (auto &v : state->leaves->vertices) {
+					const real32 x = v->nor.x;
+					const real32 y = v->nor.y;
+					const real32 z = v->nor.z;
+					leaves_file << "vn " << x << " " << " " << y << " " << z << std::endl;
+				}
+
+				for (auto f : state->leaves->polygons) {
+					const u32 f0 = f->indices[0] + 1 + vertex_offset;
+					const u32 f1 = f->indices[1] + 1 + vertex_offset;
+					const u32 f2 = f->indices[2] + 1 + vertex_offset;
+					leaves_file << face_string_with_normals_and_uv(f0, f1, f2);
+				}
+
+				vertex_offset += state->leaves->vertices.size();
+			}
+
+			std::ofstream leaves_material_file("export/tree_leaves.mtl", std::ios::out);
+
+			if (leaves_material_file.good()) {
+				std::string colour_string = std::to_string(state->cur_preset.params.leaves_colour.x) + " "
+					+ std::to_string(state->cur_preset.params.leaves_colour.y) + " "
+					+ std::to_string(state->cur_preset.params.leaves_colour.z);
+
+				leaves_material_file << "newmtl colour" << std::endl;
+				leaves_material_file << "Ka " << colour_string << std::endl;
+				leaves_material_file << "Kd " << colour_string << std::endl;
+				leaves_material_file << "Ks 0.000 0.000 0.000" << std::endl;
+				leaves_material_file << "d 1.000" << std::endl;
+				leaves_material_file << "illum 2" << std::endl;
+			}
+
+			leaves_material_file.close();
+		}
+
+		leaves_file.close();
+	}
+
+	if (state->export_settings.rocks) {
+		std::ofstream rocks_file("export/rocks.obj", std::ios::out);
+
+		if (rocks_file.good()) {
+			rocks_file << "mtllib rocks.mtl" << std::endl;
+			rocks_file << "usemtl colour" << std::endl;
+
+			u32 i = 0;
+			u32 vertex_offset = 0;
+			for (auto &p : state->rocks_pos) {
+				rocks_file << "o Tree_" << i++ << std::endl;
+				for (auto &v : state->rock->vertices) {
+					V4 v4 = { v->pos.x, v->pos.y, v->pos.z, 1.f };
+					V4 d = {};
+					real32 m[16];
+					mat4_identity(m);
+					mat4_scale(m, state->cur_preset.params.rock_size, state->cur_preset.params.rock_size, state->cur_preset.params.rock_size);
+					mat4_rotate_z(m, state->rocks_rotation[i].z);
+					mat4_rotate_y(m, state->rocks_rotation[i].y);
+					mat4_rotate_x(m, state->rocks_rotation[i].x);
+				
+					for (u32 i = 0; i < 4; i++) {
+						for (u32 j = 0; j < 4; j++) {
+							d.E[i] += (m[i * 4 + j] * v4.E[j]);
+						}
+					}
+
+					const real32 x = d.x + p.x;
+					const real32 y = d.y + p.y;
+					const real32 z = d.z + p.z;
+					rocks_file << "v " << x << " " << " " << y << " " << z << std::endl;
+				}
+
+				for (auto &v : state->rock->vertices) {
+					const real32 x = v->nor.x;
+					const real32 y = v->nor.y;
+					const real32 z = v->nor.z;
+					rocks_file << "vn " << x << " " << " " << y << " " << z << std::endl;
+				}
+
+				for (auto f : state->rock->polygons) {
+					const u32 f0 = f->indices[0] + 1 + vertex_offset;
+					const u32 f1 = f->indices[1] + 1 + vertex_offset;
+					const u32 f2 = f->indices[2] + 1 + vertex_offset;
+					rocks_file << face_string_with_normals_and_uv(f0, f1, f2);
+				}
+
+				vertex_offset += state->rock->vertices.size();
+			}
+
+			std::ofstream rock_material_file("export/rocks.mtl", std::ios::out);
+
+			if (rock_material_file.good()) {
+				std::string colour_string = std::to_string(state->cur_preset.params.rock_colour.x) + " "
+					+ std::to_string(state->cur_preset.params.rock_colour.y) + " "
+					+ std::to_string(state->cur_preset.params.rock_colour.z);
+
+				rock_material_file << "newmtl colour" << std::endl;
+				rock_material_file << "Ka " << colour_string << std::endl;
+				rock_material_file << "Kd " << colour_string << std::endl;
+				rock_material_file << "Ks 0.000 0.000 0.000" << std::endl;
+				rock_material_file << "d 1.000" << std::endl;
+				rock_material_file << "illum 2" << std::endl;
+			}
+
+			rock_material_file.close();
+		}
+
+		rocks_file.close();
+	}
+
+	// Material file.
 	std::ofstream material_file("export/terrain.mtl", std::ios::out);
 
 	if (material_file.good()) {
@@ -907,6 +1115,7 @@ static void export_terrain(app_state *state)
 
 	material_file.close();
 
+	// Texture map.
 	if (state->export_settings.texture_map) {
 		std::ofstream tga_file("export/diffuse.tga", std::ios::binary);
 		if (!tga_file) return;
@@ -920,27 +1129,13 @@ static void export_terrain(app_state *state)
 
 		tga_file.write((char *)header, 18);
 
-		glBindVertexArray(state->triangle_vao);
-		glUseProgram(state->terrain_shader.program);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, state->texture_map_data.fbo);
-
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
 		real32 no_clip[4] = { 0, -1, 0, 100000 };
 
-		Camera copy_cam = state->cur_cam;
-		camera_ortho(&copy_cam, state->world_tile_length, state->world_tile_length);
-		copy_cam.pos = { 0, 9000, 0 };
-		copy_cam.front = { 0, -1, 0 };
-		copy_cam.up = { 1, 0, 0 };
-		camera_look_at(&copy_cam); 
-		
 		real32 light_projection[16], light_view[16];
 		mat4_identity(light_projection);
 		mat4_identity(light_view);
-		mat4_ortho(light_projection, -10.f, 10.f, -10.f, 10.f, 1.f, 100.f);
-		mat4_look_at(light_view, state->light_pos, { state->world_tile_length / 2.f, 0.f, state->world_tile_length / 2.f }, { 1.f, 0.f, 0.f });
+		mat4_ortho(light_projection, -1.f * state->world_tile_length, state->world_tile_length, -1.f * state->world_tile_length, state->world_tile_length, 1.f, 10000.f);
+		mat4_look_at(light_view, state->light_pos, { 0.f, 0.f, 0.f }, { 0.f, 1.f, 0.f });
 
 		real32 light_space_matrix[16];
 		mat4_identity(light_space_matrix);
@@ -948,10 +1143,50 @@ static void export_terrain(app_state *state)
 
 		V3 light_pos = state->light_pos;
 
+		glActiveTexture(GL_TEXTURE0);
+
 		// Put the light directly above the terrain if we dont want shadows.
 		if (!state->export_settings.bake_shadows) {
 			light_pos = { ((real32)state->cur_preset.params.chunk_tile_length / 2) * state->cur_preset.params.world_width, 5000.f, ((real32)state->cur_preset.params.chunk_tile_length / 2) * state->cur_preset.params.world_width };
+			glBindTexture(GL_TEXTURE_2D, 0);
 		}
+		else {
+			// Render to frame buffer
+			glViewport(0, 0, 4096, 4096);
+			glBindFramebuffer(GL_FRAMEBUFFER, state->depth_map_fbo);
+			glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
+			// Render the shadow map from the lights POV.
+			glUseProgram(state->depth_shader.program);
+			glUniformMatrix4fv(state->depth_shader.projection, 1, GL_FALSE, light_projection);
+			glUniformMatrix4fv(state->depth_shader.view, 1, GL_FALSE, light_view);
+
+			glCullFace(GL_FRONT);
+
+			for (u32 i = 0; i < state->chunk_count; i++) {
+				app_render_chunk(state, no_clip, state->chunks[i], state->depth_shader.model);
+			}
+
+			glCullFace(GL_BACK);
+
+			app_render_trunks(state, state->depth_shader.model);
+			app_render_leaves(state, state->depth_shader.model);
+			app_render_rocks(state, state->depth_shader.model);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glViewport(0, 0, state->window_info.w, state->window_info.h);
+
+			glBindTexture(GL_TEXTURE_2D, state->depth_map);
+		}
+
+		Camera copy_cam = state->cur_cam;
+		camera_ortho(&copy_cam, state->world_tile_length, state->world_tile_length);
+		copy_cam.pos = { 0, 9000, 0 };
+		copy_cam.front = { 0, -1, 0 };
+		copy_cam.up = { 1, 0, 0 };
+		camera_look_at(&copy_cam); 
+
+		glUseProgram(state->terrain_shader.program);
 
 		glUniform4fv(state->terrain_shader.plane, 1, no_clip);
 
@@ -978,10 +1213,12 @@ static void export_terrain(app_state *state)
 		glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, copy_cam.view);
 		glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, copy_cam.ortho);
 
-		glBindTexture(GL_TEXTURE_2D, state->depth_map);
-		glActiveTexture(GL_TEXTURE0);
+		glBindVertexArray(state->triangle_vao);
 
-		glDisable(GL_DEPTH_TEST);
+		glBindFramebuffer(GL_FRAMEBUFFER, state->texture_map_data.fbo);
+
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
 		glViewport(0, 0, state->texture_map_data.resolution, state->texture_map_data.resolution);
 
 		for (u32 y = 0; y < state->cur_preset.params.world_width; y++) {
@@ -1002,7 +1239,6 @@ static void export_terrain(app_state *state)
 		}
 
 		glViewport(0, 0, state->window_info.w, state->window_info.h);
-		glEnable(GL_DEPTH_TEST);
 
 		glReadPixels(0, 0, state->texture_map_data.resolution, state->texture_map_data.resolution, GL_BGR, GL_UNSIGNED_BYTE, state->texture_map_data.pixels);
 
@@ -1051,6 +1287,16 @@ static void app_render(app_state *state)
 	real32 refraction_clip[4] = { 0, -1, 0, state->cur_preset.params.water_pos.y };
 	real32 no_clip[4] = { 0, -1, 0, 100000 };
 
+	real32 light_projection[16], light_view[16];
+	mat4_identity(light_projection);
+	mat4_identity(light_view);
+	mat4_ortho(light_projection, -1.f * state->world_tile_length, state->world_tile_length, -1.f * state->world_tile_length, state->world_tile_length, 1.f, 10000.f);
+	mat4_look_at(light_view, state->light_pos, { 0.f, 0.f, 0.f }, { 0.f, 1.f, 0.f });
+
+	real32 light_space_matrix[16];
+	mat4_identity(light_space_matrix);
+	mat4_multiply(light_space_matrix, light_projection, light_view);
+
 	Camera camera_backup = state->cur_cam;
 	Camera reflection_cam = state->cur_cam;
 	real32 distance = 2.f * (state->cur_cam.pos.y - state->cur_preset.params.water_pos.y);
@@ -1060,121 +1306,147 @@ static void app_render(app_state *state)
 	camera_look_at(&reflection_cam);
 
 	glEnable(GL_CLIP_DISTANCE0);
+	
+	glClearColor(state->cur_preset.params.skybox_colour.E[0], state->cur_preset.params.skybox_colour.E[1], state->cur_preset.params.skybox_colour.E[2], 1.f);
 
 	// Reflection.
 	glBindFramebuffer(GL_FRAMEBUFFER, state->water_frame_buffers.reflection_fbo);
 	glViewport(0, 0, state->water_frame_buffers.REFLECTION_WIDTH, state->water_frame_buffers.REFLECTION_HEIGHT);
-
-	glClearColor(state->cur_preset.params.skybox_colour.E[0], state->cur_preset.params.skybox_colour.E[1], state->cur_preset.params.skybox_colour.E[2], 1.f);
+	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+	
 	state->cur_cam = reflection_cam;
-
-	glUseProgram(state->terrain_shader.program);
-	glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
-	glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, state->cur_cam.view);
-
+	
+	terrain_shader_use(state, reflection_clip);
+	glUniformMatrix4fv(state->terrain_shader.light_space_matrix, 1, GL_FALSE, light_space_matrix);
+	
 	for (u32 i = 0; i < state->chunk_count; i++) {
-		app_render_chunk(state, reflection_clip, state->chunks[i]);
+		app_render_chunk(state, reflection_clip, state->chunks[i], state->terrain_shader.model);
 	}
-
-	app_render_features(state);
-
+	
+	simple_shader_use(state);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, state->depth_map);
+	glUniformMatrix4fv(state->simple_shader.light_space_matrix, 1, GL_FALSE, light_space_matrix);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.trunk_colour);
+	app_render_trunks(state, state->simple_shader.model);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.leaves_colour);
+	app_render_leaves(state, state->simple_shader.model);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.rock_colour);
+	app_render_rocks(state, state->simple_shader.model);
+	
 	// Restore camera.
 	state->cur_cam = camera_backup;
 	camera_update(&state->cur_cam);
 	camera_look_at(&state->cur_cam);
-
+	
 	// Refraction.
 	glBindFramebuffer(GL_FRAMEBUFFER, state->water_frame_buffers.refraction_fbo);
 	glViewport(0, 0, state->water_frame_buffers.REFRACTION_WIDTH, state->water_frame_buffers.REFRACTION_HEIGHT);
-
+	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-	glUseProgram(state->terrain_shader.program);
-	glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
-	glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, state->cur_cam.view);
-
+	
+	terrain_shader_use(state, refraction_clip);
+	glUniformMatrix4fv(state->terrain_shader.light_space_matrix, 1, GL_FALSE, light_space_matrix);
+	
 	for (u32 i = 0; i < state->chunk_count; i++) {
-		app_render_chunk(state, refraction_clip, state->chunks[i]);
+		app_render_chunk(state, refraction_clip, state->chunks[i], state->terrain_shader.model);
 	}
-
-	app_render_features(state);
+	
+	simple_shader_use(state);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, state->depth_map); 
+	glUniformMatrix4fv(state->simple_shader.light_space_matrix, 1, GL_FALSE, light_space_matrix);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.trunk_colour);
+	app_render_trunks(state, state->simple_shader.model);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.leaves_colour);
+	app_render_leaves(state, state->simple_shader.model);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.rock_colour);
+	app_render_rocks(state, state->simple_shader.model);
 
 	// Render to frame buffer
-	glViewport(0, 0, 1024, 1024);
+	glViewport(0, 0, 4096, 4096);
 	glBindFramebuffer(GL_FRAMEBUFFER, state->depth_map_fbo);
 	glClear(GL_DEPTH_BUFFER_BIT);
-	
-	// Render the shadow map from the lights POV.
-	real32 light_projection[16], light_view[16];
-	mat4_identity(light_projection);
-	mat4_identity(light_view);
-	mat4_ortho(light_projection, -10.f, 10.f, -10.f, 10.f, 1.f, 100.f);
-	mat4_look_at(light_view, state->light_pos, { state->world_tile_length / 2.f, 0.f, state->world_tile_length / 2.f }, { 0.f, 1.f, 0.f });
 
+	// Render the shadow map from the lights POV.
 	glUseProgram(state->depth_shader.program);
 	glUniformMatrix4fv(state->depth_shader.projection, 1, GL_FALSE, light_projection);
 	glUniformMatrix4fv(state->depth_shader.view, 1, GL_FALSE, light_view);
 	
+	glCullFace(GL_FRONT);
+
 	for (u32 i = 0; i < state->chunk_count; i++) {
-		app_render_chunk(state, no_clip, state->chunks[i]);
+		app_render_chunk(state, no_clip, state->chunks[i], state->depth_shader.model);
 	}
-	
+	glCullFace(GL_BACK);
+
+	app_render_trunks(state, state->depth_shader.model);
+	app_render_leaves(state, state->depth_shader.model);
+	app_render_rocks(state, state->depth_shader.model);
+
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, state->window_info.w, state->window_info.h);
 
 	// Finally render to screen.
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	real32 light_space_matrix[16];
-	mat4_identity(light_space_matrix);
-	mat4_multiply(light_space_matrix, light_projection, light_view);
-
-	glUseProgram(state->terrain_shader.program);
-	glUniformMatrix4fv(state->terrain_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
-	glUniformMatrix4fv(state->terrain_shader.view, 1, GL_FALSE, state->cur_cam.view);
+	terrain_shader_use(state, no_clip);
 	glUniformMatrix4fv(state->terrain_shader.light_space_matrix, 1, GL_FALSE, light_space_matrix);
+	
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, state->depth_map);
 
 	for (u32 i = 0; i < state->chunk_count; i++) {
-		app_render_chunk(state, no_clip, state->chunks[i]);
+		app_render_chunk(state, no_clip, state->chunks[i], state->terrain_shader.model);
 	}
 
-	app_render_features(state);
+	simple_shader_use(state);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, state->depth_map);
+
+	glUniformMatrix4fv(state->simple_shader.light_space_matrix, 1, GL_FALSE, light_space_matrix);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.trunk_colour);
+	app_render_trunks(state, state->simple_shader.model);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.leaves_colour);
+	app_render_leaves(state, state->simple_shader.model);
+	glUniform3fv(state->simple_shader.object_colour, 1, (GLfloat *)&state->cur_preset.params.rock_colour);
+	app_render_rocks(state, state->simple_shader.model);
 
 	glDisable(GL_CLIP_DISTANCE0);
 
 	// Water
 	glUseProgram(state->water_shader.program);
 	glBindVertexArray(state->triangle_vao);
-
+	
 	glBindBuffer(GL_ARRAY_BUFFER, state->quad_vbo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state->quad_ebo);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof Vertex, (void *)(3 * sizeof(real32)));
-
+	
 	real32 model[16];
 	mat4_identity(model);
 	mat4_translate(model, state->world_tile_length / 2, state->cur_preset.params.water_pos.y, state->world_tile_length / 2);
 	mat4_scale(model, state->world_tile_length, 1.f, state->world_tile_length);
-
+	
 	glUniformMatrix4fv(state->water_shader.projection, 1, GL_FALSE, state->cur_cam.frustrum);
 	glUniformMatrix4fv(state->water_shader.view, 1, GL_FALSE, state->cur_cam.view);
 	glUniformMatrix4fv(state->water_shader.model, 1, GL_FALSE, model);
-
+	
 	glUniform3fv(state->water_shader.water_colour, 1, (GLfloat *)&state->cur_preset.params.water_colour);
-
+	
 	glUniform1i(state->water_shader.reflection_texture, 0);
 	glUniform1i(state->water_shader.refraction_texture, 1);
-
+	
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, state->water_frame_buffers.reflection_texture);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, state->water_frame_buffers.refraction_texture);
-
+	
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	// End of water
-
+	
 	// UI	
 	ImGui::NewFrame();
 
@@ -1260,6 +1532,8 @@ static void app_render(app_state *state)
 		ImGui::Checkbox("Chunks into seperate files", (bool *)&state->export_settings.seperate_chunks);
 
 		ImGui::Checkbox("LODs", (bool *)&state->export_settings.lods);
+		ImGui::Checkbox("Trees", (bool *)&state->export_settings.trees);
+		ImGui::Checkbox("Rocks", (bool *)&state->export_settings.rocks);
 
 		if (ImGui::Button("Go!")) {
 			export_terrain(state);
@@ -1753,6 +2027,8 @@ app_state *app_init(u32 w, u32 h)
 	state->simple_shader.projection = glGetUniformLocation(state->simple_shader.program, "projection");
 	state->simple_shader.view = glGetUniformLocation(state->simple_shader.program, "view");
 	state->simple_shader.model = glGetUniformLocation(state->simple_shader.program, "model");
+	state->simple_shader.light_space_matrix = glGetUniformLocation(state->simple_shader.program, "light_space_matrix");
+	state->simple_shader.shadow_map = glGetUniformLocation(state->simple_shader.program, "shadow_map");
 	state->simple_shader.ambient_strength = glGetUniformLocation(state->simple_shader.program, "ambient_strength");
 	state->simple_shader.diffuse_strength = glGetUniformLocation(state->simple_shader.program, "diffuse_strength");
 	state->simple_shader.gamma_correction = glGetUniformLocation(state->simple_shader.program, "gamma_correction");
@@ -1913,6 +2189,9 @@ void app_handle_input(real32 dt, app_state *state, app_keyboard_input *keyboard)
 
 void app_update(app_state *state)
 {
+	camera_update(&state->cur_cam);
+	camera_look_at(&state->cur_cam);
+
 	// Keep track of current chunk for LODs and collision.
 	real32 contrained_x = min(state->world_tile_length - 1, max(0, state->cur_cam.pos.x));
 	real32 contrained_z = min(state->world_tile_length - 1, max(0, state->cur_cam.pos.z));
