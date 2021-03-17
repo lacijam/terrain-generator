@@ -1626,7 +1626,7 @@ static void app_render(app_state *state)
 					} else {
 						// Update the preset's filename.
 						std::filesystem::path p = std::filesystem::current_path();
-						std::filesystem::rename(p/(state->cur_preset.name + ".world"), p/(state->new_preset_name + ".world"));
+						std::filesystem::rename(p/("presets/" + state->cur_preset.name + ".world"), p/("presets/" + state->new_preset_name + ".world"));
 
 						// Update the preset's name within the application.
 						state->cur_preset.name = state->new_preset_name;
