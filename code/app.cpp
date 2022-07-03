@@ -6,6 +6,7 @@
 #include <fstream>
 #include <functional>
 #include <filesystem>
+#include <sstream>
 
 #include "maths.h"
 #include "win32-opengl.h"
